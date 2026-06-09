@@ -1,0 +1,67 @@
+# TruthTrace 审计与安全监控配置
+
+security:
+  # 日志审计
+  audit_log:
+    enabled: true
+    log_path: /var/log/truthtrace/audit.log
+    rotate_days: 90
+    fields:
+      - timestamp
+      - request_method
+      - request_path
+      - response_status
+      - ip_anonymized    # 最后8位清零
+      - user_agent
+      - engine_modules_triggered
+      - analysis_verdict
+      - processing_time_ms
+
+  # 入侵检测 — 基础规则
+  intrusion_detection:
+    enabled: true
+    rules:
+      # 暴力破解检测
+      - name: brute_force_login
+        condition: "5 failed login attempts from same IP in 5 minutes"
+        action: "block_ip_1h"
+        severity: high
+
+      # SQL注入检测 (已由 sanitize_input 覆盖，此为第二层)
+      - name: sql_injection_attempt
+        condition: "request contains SQL keywords in query params"
+        action: "log_and_alert"
+        severity: critical
+
+      # 异常爬取检测
+      - name: excessive_crawling
+        condition: ">100 trace submissions from same IP in 1 hour"
+        action: "throttle_or_block"
+        severity: medium
+
+      # 恶意反馈轰炸
+      - name: feedback_bombing
+        condition: ">50 feedback submissions from same IP in 10 minutes"
+        action: "throttle"
+        severity: low
+
+  # 蜜罐端点 (记录攻击者行为但无害)
+  honeypot:
+    enabled: true
+    endpoints:
+      - path: "/admin/login"
+        realistic: false  # 故意对攻击者可见
+      - path: "/api/internal/debug"
+        realistic: false
+    log_path: /var/log/truthtrace/honeypot.log
+
+  # 自动封禁
+  auto_block:
+    enabled: true
+    block_duration_hours: 24
+    max_blocked_ips: 1000
+    whitelist:
+      - "127.0.0.1"
+    blocklist_sources:
+      - abuseipdb
+      - tor_exit_nodes

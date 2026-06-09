@@ -1,0 +1,156 @@
+{
+  "app": {
+    "name": "TruthTrace",
+    "subtitle": "Event Traceability Platform",
+    "tagline": "Trace the Truth, Debunk the Rumors"
+  },
+  "nav": {
+    "home": "Home",
+    "search": "Search",
+    "rumors": "Debunk Square"
+  },
+  "home": {
+    "hero_title": "Trace Every Piece of Info to Its",
+    "hero_title_highlight": "Source",
+    "hero_desc": "Enter any web link or keyword, and TruthTrace will trace it back to the original publisher, analyze the propagation chain, identify rumors, and restore the truth.",
+    "keyword_search": "Keyword Search",
+    "url_trace": "URL Tracing",
+    "search_placeholder_keyword": "Enter event keywords, e.g. 'food safety incident'...",
+    "search_placeholder_url": "Paste a link, e.g. https://twitter.com/... or https://news.com/...",
+    "platform_hint": "Supports Weibo, Zhihu, Twitter, Reddit, news sites, and more",
+    "live_data": "Live Data",
+    "auto_refresh": "Auto-refresh every 60s",
+    "total_events": "Total Events",
+    "total_sources": "Sources",
+    "rumor_reports": "Debunk Reports",
+    "avg_credibility": "Avg Credibility",
+    "today_new": "Today",
+    "events_unit": "events",
+    "traces_unit": "traces",
+    "credible": "Credible",
+    "questionable": "Questionable",
+    "low_credibility": "Low Credibility",
+    "hot_events": "Trending Events",
+    "platform_dist": "Platform Distribution",
+    "verdict_dist": "Verdict Distribution",
+    "view_all": "View All Events",
+    "features": {
+      "trace": {
+        "title": "Cross-Platform Tracing",
+        "desc": "Covers Weibo, Zhihu, Twitter, Reddit, news sites and more. Complete URL redirect chain resolution to find the original publisher."
+      },
+      "propagation": {
+        "title": "Propagation Analysis",
+        "desc": "Visualize the information propagation network, from source to outbreak to full spread, clearly see how information evolves."
+      },
+      "debunk": {
+        "title": "Smart Debunking",
+        "desc": "NLP-based rumor detection with multi-source cross-verification, auto-generated debunk reports to help you identify misinformation."
+      }
+    },
+    "how_it_works": "How It Works",
+    "steps": {
+      "1": { "title": "Submit Link/Keyword", "desc": "Enter the link or keyword you want to trace" },
+      "2": { "title": "Intelligent Crawling", "desc": "System automatically crawls related content and analyzes event elements" },
+      "3": { "title": "Build Propagation Graph", "desc": "Construct the information propagation network and identify sources" },
+      "4": { "title": "Generate Report", "desc": "Output a complete traceability analysis and debunk conclusion" }
+    },
+    "cta_title": "Encountered suspicious information?",
+    "cta_desc": "Paste the link here, and let TruthTrace investigate for you.",
+    "cta_button": "Start Tracing"
+  },
+  "search": {
+    "title": "Event Search",
+    "search_result": "Search",
+    "quick_trace": "Quick URL Trace",
+    "paste_url": "Paste Weibo/Zhihu/Twitter/News link...",
+    "start_trace": "Start Trace",
+    "submitting": "Submitting...",
+    "filter": "Filter",
+    "all_status": "All Status",
+    "emerging": "🆕 Emerging",
+    "active": "🔥 Active",
+    "resolved": "✅ Resolved",
+    "all_credibility": "All Credibility",
+    "credible_filter": "Credible (≥70)",
+    "questionable_filter": "Questionable (40-69)",
+    "low_cred_filter": "Low (<40)",
+    "all_time": "All Time",
+    "last_24h": "Last 24 Hours",
+    "last_week": "Last Week",
+    "last_month": "Last Month",
+    "found_events": "Found {{count}} events",
+    "no_results": "No events found",
+    "no_results_hint": "Try entering a URL for tracing, or use different keywords.",
+    "search_or_trace": "Search or Trace",
+    "search_or_trace_hint": "Enter keywords to search existing events, or paste a link above for full-chain traceability analysis.",
+    "credibility_score": "Credibility",
+    "loading": "Searching and analyzing..."
+  },
+  "event": {
+    "detail": "Event Detail",
+    "back_search": "Back to Search",
+    "overview": "Overview",
+    "propagation_graph": "Propagation Graph",
+    "timeline": "Timeline",
+    "sources": "Sources",
+    "view_report": "View Trace Report",
+    "info_sources": "Information Sources",
+    "platforms": "Platforms Covered",
+    "original_sources": "Original Sources",
+    "last_updated": "Last Updated",
+    "platform_distribution": "Platform Distribution",
+    "suspected_original": "Suspected Original/Authoritative Sources",
+    "rumor_alert": "Debunk Alert",
+    "rumor_alert_text": "This event has been flagged as \"{{verdict}}\". Please check the trace report for details.",
+    "view_full_report": "View Full Report →",
+    "no_graph": "No propagation graph data yet",
+    "no_sources": "No source data yet",
+    "loading_event": "Loading event details..."
+  },
+  "rumor": {
+    "square": "Debunk Square",
+    "all": "All",
+    "false": "False",
+    "misleading": "Misleading",
+    "unverified": "Unverified",
+    "no_rumors": "No debunk reports yet"
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "An error occurred",
+    "retry": "Retry",
+    "empty": "No data available",
+    "export": "Export",
+    "export_csv": "Export CSV",
+    "export_pdf": "Export PDF",
+    "dark_mode": "Dark Mode",
+    "light_mode": "Light Mode",
+    "follow_system": "Follow System",
+    "switch_theme": "Switch Theme"
+  },
+  "verdict": {
+    "true": "True",
+    "false": "False",
+    "misleading": "Misleading",
+    "unverified": "Unverified",
+    "likely_true": "Likely True",
+    "likely_false": "Likely False",
+    "uncertain": "Uncertain"
+  },
+  "graph": {
+    "legend_weibo": "Weibo",
+    "legend_zhihu": "Zhihu",
+    "legend_wechat": "WeChat",
+    "legend_twitter": "Twitter",
+    "legend_reddit": "Reddit",
+    "legend_news": "News",
+    "legend_original": "Original Source",
+    "legend_repost": "Repost",
+    "legend_quote": "Quote",
+    "legend_reference": "Reference",
+    "legend_hint": "🖱 Click node to highlight | Drag to move | Scroll to zoom",
+    "node_original_badge": "🎯 Original Source",
+    "node_authority": "Authority"
+  }
+}

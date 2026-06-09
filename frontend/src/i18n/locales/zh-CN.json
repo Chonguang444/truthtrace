@@ -1,0 +1,156 @@
+{
+  "app": {
+    "name": "TruthTrace",
+    "subtitle": "网络事件追溯",
+    "tagline": "追溯真相，破除谣言"
+  },
+  "nav": {
+    "home": "首页",
+    "search": "搜索",
+    "rumors": "辟谣广场"
+  },
+  "home": {
+    "hero_title": "追溯每一条信息的",
+    "hero_title_highlight": "源头",
+    "hero_desc": "输入任何网络链接或关键词，TruthTrace 帮你追溯到最早的信息发布者，分析传播链路，识别谣言，还原事件真相。",
+    "keyword_search": "关键词搜索",
+    "url_trace": "URL 溯源",
+    "search_placeholder_keyword": "输入事件关键词，如「XX食品安全事件」...",
+    "search_placeholder_url": "粘贴链接，如 https://weibo.com/... 或 https://mp.weixin.qq.com/...",
+    "platform_hint": "支持微博、知乎、微信公众号、Twitter、新闻网站等全平台链接",
+    "live_data": "实时数据",
+    "auto_refresh": "每 60 秒自动刷新",
+    "total_events": "事件总数",
+    "total_sources": "信息来源",
+    "rumor_reports": "辟谣报告",
+    "avg_credibility": "平均可信度",
+    "today_new": "今日新增",
+    "events_unit": "个事件",
+    "traces_unit": "次溯源",
+    "credible": "可信",
+    "questionable": "存疑",
+    "low_credibility": "低可信",
+    "hot_events": "热点事件",
+    "platform_dist": "平台分布",
+    "verdict_dist": "辟谣判定分布",
+    "view_all": "查看全部事件",
+    "features": {
+      "trace": {
+        "title": "全网溯源",
+        "desc": "覆盖微博、知乎、Twitter、Reddit、新闻网站等全平台，URL 跳转链完整解析，找到信息的最初发布者。"
+      },
+      "propagation": {
+        "title": "传播链路分析",
+        "desc": "可视化展示信息的传播网络，从源头到爆发再到全网扩散，一目了然看到信息如何传播演变。"
+      },
+      "debunk": {
+        "title": "智能辟谣",
+        "desc": "基于 NLP 和传播模式分析的谣言检测，多源交叉验证，自动生成辟谣报告，帮你识别虚假信息。"
+      }
+    },
+    "how_it_works": "如何工作",
+    "steps": {
+      "1": { "title": "提交链接/关键词", "desc": "输入你想追溯的信息链接或关键词" },
+      "2": { "title": "智能爬取分析", "desc": "系统自动爬取相关内容，分析事件要素" },
+      "3": { "title": "传播链路构建", "desc": "构建信息传播网络，识别源头" },
+      "4": { "title": "生成溯源报告", "desc": "输出完整的溯源分析和辟谣结论" }
+    },
+    "cta_title": "遇到让你不确定的信息？",
+    "cta_desc": "把链接粘贴过来，让 TruthTrace 帮你查个水落石出。",
+    "cta_button": "开始追溯"
+  },
+  "search": {
+    "title": "事件搜索",
+    "search_result": "搜索",
+    "quick_trace": "快速 URL 溯源",
+    "paste_url": "粘贴微博/知乎/微信/新闻链接...",
+    "start_trace": "开始追溯",
+    "submitting": "提交中...",
+    "filter": "筛选",
+    "all_status": "全部状态",
+    "emerging": "🆕 新出现",
+    "active": "🔥 热议中",
+    "resolved": "✅ 已定论",
+    "all_credibility": "全部可信度",
+    "credible_filter": "可信 (≥70)",
+    "questionable_filter": "存疑 (40-69)",
+    "low_cred_filter": "低可信 (<40)",
+    "all_time": "全部时间",
+    "last_24h": "最近 24 小时",
+    "last_week": "最近一周",
+    "last_month": "最近一月",
+    "found_events": "找到 {{count}} 个事件",
+    "no_results": "未找到相关事件",
+    "no_results_hint": "试试输入 URL 进行溯源，或使用不同的关键词搜索。",
+    "search_or_trace": "搜索或溯源",
+    "search_or_trace_hint": "输入关键词搜索已有事件，或在上面粘贴链接进行全链路溯源分析。",
+    "credibility_score": "可信度",
+    "loading": "正在搜索分析..."
+  },
+  "event": {
+    "detail": "事件详情",
+    "back_search": "返回搜索",
+    "overview": "概览",
+    "propagation_graph": "传播图",
+    "timeline": "时间线",
+    "sources": "信息来源",
+    "view_report": "查看溯源报告",
+    "info_sources": "信息来源",
+    "platforms": "覆盖平台",
+    "original_sources": "一手来源",
+    "last_updated": "最后更新",
+    "platform_distribution": "平台分布",
+    "suspected_original": "疑似一手/权威来源",
+    "rumor_alert": "辟谣提醒",
+    "rumor_alert_text": "该事件已被标记为「{{verdict}}」，请查看溯源报告了解详情。",
+    "view_full_report": "查看完整报告 →",
+    "no_graph": "暂未构建传播图数据",
+    "no_sources": "暂无来源数据",
+    "loading_event": "加载事件详情..."
+  },
+  "rumor": {
+    "square": "辟谣广场",
+    "all": "全部",
+    "false": "虚假",
+    "misleading": "误导",
+    "unverified": "待验证",
+    "no_rumors": "暂无辟谣报告"
+  },
+  "common": {
+    "loading": "加载中...",
+    "error": "出现错误",
+    "retry": "重试",
+    "empty": "暂无数据",
+    "export": "导出",
+    "export_csv": "导出 CSV",
+    "export_pdf": "导出 PDF",
+    "dark_mode": "深色模式",
+    "light_mode": "浅色模式",
+    "follow_system": "跟随系统",
+    "switch_theme": "切换主题"
+  },
+  "verdict": {
+    "true": "真实",
+    "false": "虚假",
+    "misleading": "误导",
+    "unverified": "待验证",
+    "likely_true": "可能真实",
+    "likely_false": "可能虚假",
+    "uncertain": "不确定"
+  },
+  "graph": {
+    "legend_weibo": "微博",
+    "legend_zhihu": "知乎",
+    "legend_wechat": "微信",
+    "legend_twitter": "Twitter",
+    "legend_reddit": "Reddit",
+    "legend_news": "新闻",
+    "legend_original": "原始来源",
+    "legend_repost": "转发",
+    "legend_quote": "引用",
+    "legend_reference": "参考",
+    "legend_hint": "🖱 点击节点高亮传播链 | 拖拽移动 | 滚轮缩放",
+    "node_original_badge": "🎯 原始来源",
+    "node_authority": "权威度"
+  }
+}

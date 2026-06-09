@@ -1,0 +1,49 @@
+"""
+TruthTrace 全局配置
+"""
+
+from pydantic_settings import BaseSettings
+from functools import lru_cache
+
+
+class Settings(BaseSettings):
+    # 应用
+    app_name: str = "TruthTrace"
+    app_version: str = "0.1.0"
+    debug: bool = True
+
+    # 数据库
+    database_url: str = "postgresql+asyncpg://truthtrace:truthtrace_dev@localhost:5432/truthtrace"
+    database_url_sync: str = "postgresql://truthtrace:truthtrace_dev@localhost:5432/truthtrace"
+
+    # Redis
+    redis_url: str = "redis://localhost:6379/0"
+
+    # Elasticsearch
+    elasticsearch_url: str = "http://localhost:9200"
+
+    # Celery
+    celery_broker_url: str = "redis://localhost:6379/1"
+    celery_result_backend: str = "redis://localhost:6379/2"
+
+    # 爬虫配置
+    crawler_concurrency: int = 10
+    crawler_timeout: int = 30
+    crawler_user_agents: list[str] = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    ]
+
+    # NLP
+    spacy_model: str = "zh_core_web_sm"
+    sentence_model: str = "paraphrase-multilingual-MiniLM-L12-v2"
+
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

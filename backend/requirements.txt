@@ -1,0 +1,60 @@
+# Web 框架
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# 数据库
+sqlalchemy[asyncio]==2.0.35
+asyncpg==0.29.0
+alembic==1.13.2
+
+# 搜索
+elasticsearch[async]==8.15.1
+
+# 缓存 & 队列
+redis==5.1.1
+celery[redis]==5.4.0
+
+# 爬虫
+httpx==0.27.2
+beautifulsoup4==4.12.3
+lxml==5.3.0
+playwright==1.47.0
+
+# NLP & 中文处理
+jieba==0.42.1
+spacy==3.7.5
+sentence-transformers==3.1.1
+
+# 图像处理 (图片反向搜索)
+Pillow==10.4.0
+imagehash==4.3.1
+
+# 工具
+python-multipart==0.0.9
+tenacity==9.0.0
+loguru==0.7.2
+orjson==3.10.7
+
+# 认证 (Phase 5 D1)
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+
+# 速率限制 (Phase 5 A3)
+slowapi==0.1.9
+
+# 导出 (Phase 5 D3)
+weasyprint==62.3
+
+# 监控 (Phase 5 C3)
+sentry-sdk[fastapi]==2.14.0
+
+# WebSocket (Phase 5 D2)
+websockets==13.0
+
+# 测试
+pytest==8.3.3
+pytest-asyncio==0.24.0
+aiosqlite==0.20.0
