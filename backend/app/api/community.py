@@ -116,58 +116,9 @@ def _add_reputation(user_id: str, username: str, points: int, reason: str):
 
 
 # =============================================================================
-# 预置样例数据
+# 社区数据存储 (内存, 等待数据库模型迁移)
+# 不再预置虚假样例数据——首次使用时为空,用户通过POST端点提交数据后自然积累。
 # =============================================================================
-
-def _seed_data():
-    """初始化样例数据"""
-    if _expert_applications:
-        return
-
-    # 预置专家
-    experts = [
-        ("expert-001", "张医生", "medicine", "三甲医院临床医师,15年从业经验"),
-        ("expert-002", "李教授", "food_safety", "食品安全领域教授,参与多项国家标准制定"),
-        ("expert-003", "王记者", "journalism", "调查记者,专注于食品安全和数据新闻"),
-        ("expert-004", "赵博士", "data_science", "数据科学家,统计分析方法论专家"),
-        ("expert-005", "陈律师", "law", "知识产权和信息法领域律师"),
-    ]
-    for eid, name, domain, cred in experts:
-        _verified_experts[eid] = {
-            "user_id": eid, "username": name, "domain": domain,
-            "credentials": cred, "verified_at": (datetime.now(timezone.utc) - timedelta(days=30)).isoformat(),
-            "total_verifications": random.randint(15, 80),
-        }
-        _reputation[eid] = {"score": random.randint(500, 3000), "username": name, "upvotes": random.randint(20, 100), "downvotes": random.randint(0, 5), "history": []}
-
-    # 预置悬赏
-    bounty_samples = [
-        {"url": "https://weibo.com/example1", "question": "这条微博声称某种食品添加剂致癌,请核实是否有科学研究支持。", "reward": 100},
-        {"url": "https://zhihu.com/example2", "question": "知乎这篇文章引用的统计数据是否来自可靠来源？", "reward": 50},
-        {"url": "https://mp.weixin.qq.com/example3", "question": "这篇公众号文章中的'专家建议'是否可验证？谁是这位专家？", "reward": 80},
-        {"url": "https://bilibili.com/example4", "question": "B站这个视频声称5G有害健康,请评估其科学准确性。", "reward": 60},
-        {"url": "https://douyin.com/example5", "question": "抖音这条关于新冠疫情的说法有依据吗？", "reward": 40},
-        {"url": "https://news.example.com/6", "question": "这篇新闻报道是否存在选择性引用数据的问题？", "reward": 70},
-        {"url": "https://twitter.com/example7", "question": "这条推文中的'内部文件'是否真实存在？", "reward": 90},
-        {"url": "https://weibo.com/example8", "question": "这个'研究发现'是否有论文链接可查？", "reward": 30},
-        {"url": "https://reddit.com/example9", "question": "Reddit帖子声称某药物有严重副作用,请核查FDA数据库。", "reward": 120},
-        {"url": "https://kuaishou.com/example10", "question": "快手这个视频声称'祖传秘方治癌症',请医学专家评估。", "reward": 150},
-    ]
-    for i, bs in enumerate(bounty_samples):
-        _bounties.append({
-            "id": f"bounty-{i+1:03d}",
-            "creator_id": f"user-{random.randint(1, 20)}",
-            "creator_name": f"用户{random.randint(1000, 9999)}",
-            "url": bs["url"],
-            "question": bs["question"],
-            "reward_points": bs["reward"],
-            "status": random.choice(["open"] * 4 + ["claimed"] * 2 + ["completed"]),
-            "claimed_by": None,
-            "submission": None,
-            "created_at": (datetime.now(timezone.utc) - timedelta(days=random.randint(0, 14))).isoformat(),
-        })
-
-_seed_data()
 
 
 # =============================================================================
