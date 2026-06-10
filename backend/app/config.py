@@ -8,7 +8,7 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     # 应用
-    app_name: str = "TruthTrace"
+    app_name: str = "TruthTrace - 平浪散暴"
     app_version: str = "0.1.0"
     debug: bool = True
 

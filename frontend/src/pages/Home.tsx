@@ -45,7 +45,7 @@ export function Home() {
               <Zap className="h-3 w-3" /> 10 引擎推理管线 · 140 API 端点 · 开源
             </div>
             <h1 className="text-4xl md:text-6xl font-bold tracking-tight mb-4">
-              TruthTrace <span className="text-primary">网络事件追溯</span>
+              TruthTrace <span className="text-primary">平浪散暴</span>
             </h1>
             <p className="text-lg text-muted-foreground mb-8 max-w-2xl mx-auto">
               输入链接或关键词，AI 自动溯源信息传播链路，评估可信度，识别操纵手法

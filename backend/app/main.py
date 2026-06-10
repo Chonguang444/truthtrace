@@ -1,5 +1,5 @@
 """
-TruthTrace — 网络事件追溯平台 API
+TruthTrace — 平浪散暴平台 API
 FastAPI 应用入口，集成速率限制、CORS、结构化日志
 """
 
@@ -91,7 +91,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="全网事件追溯 & 辟谣平台 API — 提交 URL 自动溯源、构建传播链、评估可信度、生成辟谣报告",
+    description="TruthTrace 平浪散暴 API — 提交 URL 自动溯源、构建传播链、评估可信度、生成辟谣报告",
     lifespan=lifespan,
     docs_url="/api/docs",
     redoc_url="/api/redoc",

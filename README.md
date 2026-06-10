@@ -1,4 +1,4 @@
-# 🛡️ TruthTrace — 全维度网络事件溯源与辟谣平台
+# 🛡️ TruthTrace — 平浪散暴
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688.svg)](https://fastapi.tiangolo.com/)
@@ -320,16 +320,22 @@ pytest tests/ -v
 
 MIT License — 详见 [LICENSE](LICENSE)
 
+## 👤 作者
+
+**[Chonguang444](https://github.com/Chonguang444)** — 产品设计与全栈开发
+
+TruthTrace 由 Chonguang444 设计和开发，Claude (Anthropic) 辅助编码实现。全部代码在 MIT 协议下开源。
+
 ---
 
 <h4 align="center">
-  TruthTrace — 追溯真相，破除谣言
+  TruthTrace — 平浪散暴，追溯真相，破除谣言
 </h4>
 
 <p align="center">
   <sub>
-    78 个任务 · 161 个文件 · 34,342 行代码 · 155 个测试<br>
-    10 引擎 · 7 级证据 · 86 条 API · 5 层安全<br>
+    78 个任务 · 161 个文件 · 34,342 行代码 · 195 个测试<br>
+    10 引擎 · 7 级证据 · 140 API 路由 · 5 层安全<br>
     一个可以部署的完整系统
   </sub>
 </p>

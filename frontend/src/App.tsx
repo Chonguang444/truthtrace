@@ -185,7 +185,7 @@ function NavBar() {
           <Shield className="h-6 w-6 text-primary" />
           <span>TruthTrace</span>
           <span className="text-xs text-muted-foreground font-normal hidden sm:inline">
-            网络事件追溯
+            平浪散暴
           </span>
         </Link>
 
@@ -300,7 +300,7 @@ export default function App() {
             </main>
           </ErrorBoundary>
           <footer className="border-t py-6 text-center text-sm text-muted-foreground">
-            <p>TruthTrace — 网络事件追溯平台 | 追溯真相，破除谣言</p>
+            <p>TruthTrace — 平浪散暴平台 | 追溯真相，破除谣言</p>
           </footer>
         </div>
       </AuthProvider>
