@@ -15,7 +15,10 @@ TruthTrace 统一推理管线 — 10 大引擎整合
 """
 
 from __future__ import annotations
+import logging
 from datetime import datetime, timezone
+
+logger = logging.getLogger("truthtrace.reasoning")
 from typing import Optional
 
 from app.engine.types import (
@@ -546,6 +549,78 @@ async def run_reasoning_pipeline(
     )
 
     # Record calibration data
+    # -----------------------------------------------------------------------
+    # Step 11: AI内容鉴伪检测 (新引擎)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.ai_detector import AIContentDetector
+        ai_detector = AIContentDetector()
+        ai_result = ai_detector.analyze(
+            text=text, title=title,
+            author_info={"username": author, "created_at": str(account_age_days) + " days ago" if account_age_days else None} if author else None,
+        )
+        result.ai_detection = ai_result.to_dict()
+        if ai_result.matches:
+            add_step(
+                f"执行AI内容鉴伪检测 (AI文本/深度伪造/机器人发帖)",
+                f"检测到{len(ai_result.matches)}个AI/操纵信号，风险评分: {ai_result.risk_score:.0f}/100 — {ai_result.summary}",
+                Confidence.MODERATE if ai_result.risk_score >= 30 else Confidence.LOW,
+                evidence=[Evidence(
+                    description=m.description,
+                    quote=m.evidence_snippet,
+                    quality=EvidenceQuality.MEDIUM if m.confidence > 0.6 else EvidenceQuality.LOW,
+                ) for m in ai_result.matches[:5]],
+                uncertainty="AI检测只能提供线索，不能确定结论。高置信度水印标记(如DALL·E/Midjourney)是强信号。",
+            )
+    except Exception as e:
+        logger.warning(f"AI检测引擎跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 12: RAG权威信源检索验证 (新引擎)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.rag_verifier import RAGVerifier
+        rag = RAGVerifier()
+        rag_result = rag.analyze(text=text, title=title, max_queries=5)
+        result.rag_verification = rag_result.to_dict()
+        if rag_result.total_claims > 0:
+            add_step(
+                "RAG权威信源检索验证 — 将主张与WHO/国家标准/学术论文实时比对",
+                f"提取{rag_result.total_claims}条可验证主张: {rag_result.supported}条获支持, {rag_result.refuted}条被反驳, {rag_result.unverifiable}条无法验证。权威覆盖度: {rag_result.authority_score:.0f}/100",
+                Confidence.HIGH if rag_result.supported > 0 or rag_result.refuted > 0 else Confidence.LOW,
+                evidence=[Evidence(
+                    description=f"[{v.verdict}] {v.claim[:80]} — {v.explanation[:100]}",
+                    source_url=v.sources[0].url if v.sources else "",
+                    quality=EvidenceQuality.HIGH if v.sources and v.sources[0].source_type in ("government","international","standard") else EvidenceQuality.MEDIUM,
+                ) for v in rag_result.verified_claims[:5]],
+                uncertainty="RAG检索结果依赖于可公开访问的权威数据源。部分主张可能需要订阅或专业数据库才能验证。",
+            )
+    except Exception as e:
+        logger.warning(f"RAG验证引擎跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 13: 发布者风险画像 (新引擎)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.publisher_risk import PublisherRiskAnalyzer
+        risk_analyzer = PublisherRiskAnalyzer()
+        pub_profile = risk_analyzer.analyze(
+            username=author, platform=platform, created_at=f"{account_age_days} days ago" if account_age_days else None,
+            total_posts=0, verified_posts=0, disputed_posts=0,
+            content_text=text,
+        )
+        result.publisher_profile = pub_profile.to_dict()
+        risk_level = "high" if pub_profile.overall_risk < 35 else ("elevated" if pub_profile.overall_risk < 50 else ("moderate" if pub_profile.overall_risk < 65 else "low"))
+        if pub_profile.risk_factors:
+            add_step(
+                "发布者风险画像分析 — 账号年龄/历史准确率/领域专注度/行为规律/传播动机",
+                f"综合可信度: {pub_profile.overall_risk:.0f}/100 ({risk_level})。{len(pub_profile.risk_factors)}个风险因素: {'; '.join(pub_profile.risk_factors[:3])}",
+                Confidence.MODERATE if pub_profile.risk_factors else Confidence.LOW,
+                uncertainty="发布者画像分析基于有限的行为数据。'不确定就是不确定'——无数据维度保持中性50分。",
+            )
+    except Exception as e:
+        logger.warning(f"发布者风险分析跳过: {e}")
+
     try:
         from app.evolution.calibrator import get_calibrator
         get_calibrator().record_event(result.credibility_score, result.verdict.value, result.to_dict())

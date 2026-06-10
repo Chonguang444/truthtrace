@@ -215,6 +215,9 @@ class AnalysisResult:
     statistical_analysis: Optional["StatisticalAnalysis"] = None
     composite_analysis: Optional["CompositeAnalysis"] = None
     modality_analysis: Optional["ModalityAnalysis"] = None
+    ai_detection: Optional[dict] = None
+    rag_verification: Optional[dict] = None
+    publisher_profile: Optional[dict] = None
     media_verification: Optional[dict] = None
     llm_analysis: Optional[dict] = None
 
@@ -246,6 +249,9 @@ class AnalysisResult:
             "statistical_analysis": self.statistical_analysis.to_dict() if self.statistical_analysis else None,
             "composite_analysis": self.composite_analysis.to_dict() if self.composite_analysis else None,
             "modality_analysis": self.modality_analysis.to_dict() if self.modality_analysis else None,
+            "ai_detection": self.ai_detection,
+            "rag_verification": self.rag_verification,
+            "publisher_profile": self.publisher_profile,
             "media_verification": self.media_verification,
             "llm_analysis": self.llm_analysis,
             "reasoning_chain": [s.to_dict() for s in self.reasoning_chain],
