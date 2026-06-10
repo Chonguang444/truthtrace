@@ -4,7 +4,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688.svg)](https://fastapi.tiangolo.com/)
 [![React 18](https://img.shields.io/badge/React-18-61DAFB.svg)](https://react.dev/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-155%20passed-brightgreen.svg)](backend/tests/)
+[![Tests](https://img.shields.io/badge/tests-206%20passed-brightgreen.svg)](backend/tests/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-0%20errors-blue.svg)](frontend/)
 
 **追溯每一条信息的源头。分析传播链路。识别谣言。还原真相。**
@@ -274,7 +274,7 @@ Chrome/Edge 扩展位于 `browser-extension/`:
 
 ### 隐私
 
-- 密码：bcrypt 哈希（不可逆）
+- 密码：pbkdf2_sha256 哈希（不可逆）
 - IP：每 24 小时匿名化（最后 8 位清零）
 - URL 跟踪参数：自动移除（utm/fbclid/gclid）
 - 不追踪浏览行为，不记录精确位置
@@ -288,7 +288,7 @@ Chrome/Edge 扩展位于 `browser-extension/`:
 cd backend
 pytest tests/ -v
 
-# 155 tests passed
+# 206 tests passed
 ```
 
 测试覆盖：
@@ -334,8 +334,9 @@ TruthTrace 由 Chonguang444 设计和开发，Claude (Anthropic) 辅助编码实
 
 <p align="center">
   <sub>
-    78 个任务 · 161 个文件 · 34,342 行代码 · 195 个测试<br>
-    10 引擎 · 7 级证据 · 140 API 路由 · 5 层安全<br>
+    78+ 任务 · 180+ 文件 · 35,000+ 行代码 · 206 个测试<br>
+    10 引擎 · 7 级证据 · 140 API 路由 · 8 层爬虫沙箱 · Prometheus 监控<br>
+    反馈闭环 · 质量仪表盘 · Alembic 迁移 · 自我进化<br>
     一个可以部署的完整系统
   </sub>
 </p>
