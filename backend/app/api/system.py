@@ -372,6 +372,20 @@ async def seed_status_endpoint(db: AsyncSession = Depends(get_db)):
 
 
 # =============================================================================
+# 工具状态端点
+# =============================================================================
+
+@router.get("/system/tools/status")
+async def tools_status():
+    """检查视频转录等外部工具依赖状态"""
+    try:
+        from app.crawler.video_transcriber import get_dependency_status
+        return get_dependency_status()
+    except Exception as e:
+        return {"ready": False, "error": str(e), "message": "安装: pip install yt-dlp faster-whisper"}
+
+
+# =============================================================================
 # 蜜罐端点 (用于入侵检测 — 正常用户不应访问)
 # =============================================================================
 

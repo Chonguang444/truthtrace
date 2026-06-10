@@ -127,12 +127,39 @@ async def _run_trace_pipeline(
     safe_desc = sanitize_input(description or "", max_length=2000, field_name="description")
     from app.tracer.graph import PropagationGraphBuilder
     from app.tracer.original_finder import OriginalFinder
+    from app.crawler.video_platforms import identify_video_platform
 
     # Step 1: 解析 URL 跳转链
     progress("解析 URL 跳转链...")
     resolver = URLResolver()
     url_chain = await resolver.resolve(url)
     final_url = url_chain[-1][0] if url_chain else url
+
+    # Step 1.5: 视频音频转录（检测到视频 URL 时自动提取音频转文字）
+    video_transcript = ""
+    video_transcript_meta = None
+    if identify_video_platform(final_url):
+        progress("检测到视频URL，启动音频转文字...")
+        try:
+            from app.crawler.video_transcriber import get_transcriber, check_dependencies
+            deps = check_dependencies()
+            if deps.get("ready"):
+                progress("下载视频音频 + Whisper 语音转文字中（约需 30-120 秒）...")
+                transcriber = get_transcriber()
+                transcript = await transcriber.transcribe_video(final_url, title_hint=title or "", max_duration=300)
+                if transcript.full_text:
+                    video_transcript = transcript.full_text
+                    video_transcript_meta = transcript.to_dict()
+                    progress(f"视频转录完成: {transcript.word_count} 字, {transcript.segment_count} 语音段")
+                    logger.info(f"[视频转录] {len(video_transcript)} chars from {final_url[:50]}")
+                elif transcript.error:
+                    progress(f"视频转录跳过: {transcript.error[:100]}")
+            else:
+                missing = deps.get("missing", [])
+                progress(f"视频转录不可用（缺少: {', '.join(missing)}）。安装: pip install yt-dlp faster-whisper ffmpeg")
+        except Exception as e:
+            progress(f"视频转录失败: {str(e)[:100]} — 回退到文本模式")
+            logger.warning(f"视频转录失败: {e}")
 
     # Step 2: 爬取目标页面 (基础爬虫)
     progress(f"爬取目标页面: {final_url[:50]}...")
@@ -160,6 +187,9 @@ async def _run_trace_pipeline(
 
     # 合并深度采集内容作为文本来源
     combined_text = deep_content_text or (page_data.content if page_data else "")
+    # 如果有视频转录文字，追加到分析文本中
+    if video_transcript:
+        combined_text = f"{combined_text}\n\n=== 视频语音转录内容 ===\n{video_transcript}"
     if not combined_text:
         return {
             "status": "error",
@@ -290,6 +320,8 @@ async def _run_trace_pipeline(
             "cross_reference": deep_result.cross_reference if deep_result else {},
             "consistency_score": deep_result.consistency_score if deep_result else 50.0,
         } if deep_result else None,
+        # 视频转录结果
+        "video_transcript": video_transcript_meta,
         "propagation_graph": {
             "nodes": len(graph.nodes),
             "edges": len(graph.edges),
