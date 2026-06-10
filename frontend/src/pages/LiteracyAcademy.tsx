@@ -58,14 +58,18 @@ function ChallengeTab() {
 
   const handleSubmit = async () => {
     const answerList = Object.entries(answers).map(([question_id, selected_type]) => ({ question_id, selected_type }));
-    const res = await fetch((import.meta.env.VITE_API_BASE_URL || "") + "/api/literacy/challenges/submit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(localStorage.getItem("truthtrace-token") ? { Authorization: `Bearer ${localStorage.getItem("truthtrace-token")}` } : {}) },
-      body: JSON.stringify({ challenge_id: questionsData?.challenge_id || "", answers: answerList }),
-      credentials: "include",
-    });
-    const data = await res.json();
-    setResult(data);
+    try {
+      const res = await fetch((import.meta.env.VITE_API_BASE_URL || "") + "/api/literacy/challenges/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(localStorage.getItem("truthtrace-token") ? { Authorization: `Bearer ${localStorage.getItem("truthtrace-token")}` } : {}) },
+        body: JSON.stringify({ challenge_id: questionsData?.challenge_id || "", answers: answerList }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      setResult(data);
+    } catch (e: any) {
+      setResult({ error: e.message || "提交失败" });
+    }
     setSubmitted(true);
   };
 

@@ -18,6 +18,15 @@
 
 from __future__ import annotations
 import logging
+
+
+def _parse_fraction(frac_str: str) -> float:
+    """Safely parse a fraction string like '30000/1001' to float."""
+    try:
+        num, den = frac_str.split("/", 1)
+        return float(num) / float(den)
+    except (ValueError, ZeroDivisionError):
+        return 0.0
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional
@@ -280,7 +289,7 @@ def analyze_video_frames(video_path_or_url: str) -> dict:
 
             for stream in data.get("streams", []):
                 if stream.get("codec_type") == "video":
-                    result["fps"] = eval(stream.get("r_frame_rate", "0/1"))
+                    result["fps"] = _parse_fraction(stream.get("r_frame_rate", "0/1"))
                     result["frame_count"] = int(stream.get("nb_frames", 0))
                     result["duration_seconds"] = float(stream.get("duration", 0))
                     break

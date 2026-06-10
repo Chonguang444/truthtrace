@@ -253,3 +253,74 @@ class TestCSPReports:
         count = clear_csp_reports()
         assert count >= 1
         assert len(get_csp_reports()) == 0
+
+
+# =============================================================================
+# 爬虫沙箱 URL 验证 (使用 security.CrawlerSandbox)
+# =============================================================================
+
+class TestSandboxUrlValidation:
+    """SSRF / 内网 / 元数据端点拦截"""
+
+    def test_blocks_private_ip(self):
+        assert not validate_url_safe("http://127.0.0.1/admin"), "Should block localhost"
+        assert not validate_url_safe("http://192.168.1.1/test"), "Should block 192.168"
+
+    def test_blocks_metadata_endpoint(self):
+        assert not validate_url_safe("http://169.254.169.254/latest/meta-data")
+
+    def test_blocks_file_protocol(self):
+        assert not validate_url_safe("file:///etc/passwd")
+
+    def test_blocks_empty_url(self):
+        assert not validate_url_safe("")
+
+    def test_allows_normal_https(self):
+        assert validate_url_safe("https://example.com/article")
+
+
+# =============================================================================
+# 严格逻辑推理测试
+# =============================================================================
+
+class TestRigorousLogic:
+    """证据等级分类 + 乘法风险模型"""
+
+    def test_classify_none_evidence(self):
+        from app.engine.rigorous_logic import classify_evidence_level, EvidenceLevel
+        level = classify_evidence_level("某物质致癌", "", "weibo")
+        assert level == EvidenceLevel.NONE
+
+    def test_classify_authority_source(self):
+        from app.engine.rigorous_logic import classify_evidence_level, EvidenceLevel
+        level = classify_evidence_level("添加剂安全", "GB 2760-2024", "national_standard")
+        assert level in (EvidenceLevel.STRONG, EvidenceLevel.AUTHORITATIVE, EvidenceLevel.CONVERGENT)
+
+    def test_evidence_authority_above_weak(self):
+        from app.engine.rigorous_logic import classify_evidence_level, EvidenceLevel
+        level = classify_evidence_level("疫苗安全", "WHO; FDA", "international_consensus")
+        assert level.value >= EvidenceLevel.MODERATE.value
+
+    def test_risk_model_returns_tuple(self):
+        from app.engine.rigorous_logic import MultiplicativeRiskModel
+        result = MultiplicativeRiskModel.compute(
+            distortion_count=2, fallacy_count=1,
+            evidence_average_level=2.0, causal_chain_count=1,
+        )
+        assert isinstance(result, tuple), "Should return (score, dict)"
+
+    def test_weak_evidence_lowers_score(self):
+        from app.engine.rigorous_logic import MultiplicativeRiskModel
+        score1, _ = MultiplicativeRiskModel.compute(
+            distortion_count=0, fallacy_count=0, evidence_average_level=6.0, causal_chain_count=0,
+        )
+        score2, _ = MultiplicativeRiskModel.compute(
+            distortion_count=0, fallacy_count=0, evidence_average_level=1.0, causal_chain_count=0,
+        )
+        assert score2 <= score1, "Weak evidence should not score higher than authoritative"
+
+    def test_media_fraction_parser(self):
+        from app.engine.media_verifier import _parse_fraction
+        assert abs(_parse_fraction("30000/1001") - 29.97) < 0.1
+        assert _parse_fraction("0/1") == 0.0
+        assert _parse_fraction("invalid") == 0.0

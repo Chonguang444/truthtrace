@@ -51,12 +51,17 @@ function RegisterTab() {
 
   const register = async () => {
     setLoading(true);
-    const res = await fetch(API + "/api/developer/register", {
-      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-      body: JSON.stringify({ name, email, website, use_case: useCase }),
-    });
-    setResult(await res.json());
-    setLoading(false);
+    try {
+      const res = await fetch(API + "/api/developer/register", {
+        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({ name, email, website, use_case: useCase }),
+      });
+      setResult(await res.json());
+    } catch (e: any) {
+      setResult({ error: e.message || "Request failed" });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const copyKey = () => { navigator.clipboard.writeText(result?.api_key || ""); setCopied(true); setTimeout(() => setCopied(false), 2000); };

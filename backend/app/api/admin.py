@@ -1,5 +1,6 @@
 """
 管理员后台 API — 分析审查/告警管理/系统健康/用户管理
+所有端点需要管理员权限
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from app.models.base import get_db
 from app.models.event import Event, Source, RumorReport, EventStatus
 from app.models.user import User, UserRole
+from app.auth.jwt import get_admin_user
 
 router = APIRouter()
 
@@ -20,7 +22,7 @@ router = APIRouter()
 # =============================================================================
 
 @router.get("/admin/overview")
-async def admin_overview(db: AsyncSession = Depends(get_db)):
+async def admin_overview(_admin: User = Depends(get_admin_user), db: AsyncSession = Depends(get_db)):
     """管理员仪表盘概览"""
     total_events = (await db.execute(select(func.count(Event.id)))).scalar() or 0
     total_sources = (await db.execute(select(func.count(Source.id)))).scalar() or 0
@@ -55,6 +57,7 @@ async def admin_overview(db: AsyncSession = Depends(get_db)):
 
 @router.get("/admin/analysis/review")
 async def list_analyses(
+    _admin: User = Depends(get_admin_user),
     sort_by: str = Query("credibility_score", description="排序: credibility_score / created_at / fallacy_count"),
     risk_level: str | None = Query(None, description="风险筛选: high/medium/low"),
     limit: int = Query(50, ge=1, le=200),
@@ -115,6 +118,7 @@ async def list_analyses(
 @router.get("/admin/analysis/{event_id}")
 async def get_full_analysis(
     event_id: UUID,
+    _admin: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
     """获取单个事件的完整分析（管理员可看所有原始数据）"""
@@ -141,7 +145,7 @@ async def get_full_analysis(
 # =============================================================================
 
 @router.get("/admin/alerts")
-async def list_alerts():
+async def list_alerts(_admin: User = Depends(get_admin_user)):
     """获取所有活跃的叙事告警"""
     from app.monitor.hotspot_monitor import monitor_scheduler
     alerts = monitor_scheduler.alert_manager.get_active_alerts()
@@ -152,7 +156,7 @@ async def list_alerts():
 
 
 @router.post("/admin/alerts/{alert_id}/dismiss")
-async def dismiss_alert_endpoint(alert_id: str):
+async def dismiss_alert_endpoint(alert_id: str, _admin: User = Depends(get_admin_user)):
     from app.monitor.hotspot_monitor import monitor_scheduler
     monitor_scheduler.alert_manager.dismiss_alert(alert_id)
     return {"status": "dismissed"}
@@ -164,6 +168,7 @@ async def dismiss_alert_endpoint(alert_id: str):
 
 @router.get("/admin/users")
 async def list_users(
+    _admin: User = Depends(get_admin_user),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -195,6 +200,7 @@ async def list_users(
 @router.post("/admin/users/{user_id}/toggle-active")
 async def toggle_user_active(
     user_id: UUID,
+    _admin: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
     """启用/禁用用户"""
@@ -211,7 +217,7 @@ async def toggle_user_active(
 # =============================================================================
 
 @router.get("/admin/health")
-async def system_health():
+async def system_health(_admin: User = Depends(get_admin_user)):
     """系统健康检查"""
     checks = {}
 

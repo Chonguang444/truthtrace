@@ -296,6 +296,52 @@ async def get_csp_reports_endpoint(
 
 
 # =============================================================================
+# Prometheus 指标端点
+# =============================================================================
+
+_metrics_start_time = datetime.now(timezone.utc)
+
+@router.get("/system/metrics")
+async def prometheus_metrics():
+    """Prometheus-compatible metrics endpoint"""
+    from app.quality import get_quality_monitor
+    from app.analyzer.dedup import get_dedup
+
+    monitor = get_quality_monitor()
+    snap = monitor.snapshot()
+    dedup = get_dedup()
+
+    lines = [
+        "# HELP truthtrace_analyses_total Total number of analyses performed",
+        "# TYPE truthtrace_analyses_total counter",
+        f"truthtrace_analyses_total {snap.total_analyses}",
+        "",
+        "# HELP truthtrace_analyses_disputed Total disputed analyses",
+        "# TYPE truthtrace_analyses_disputed counter",
+        f"truthtrace_analyses_disputed {snap.disputed_count}",
+        "",
+        "# HELP truthtrace_credibility_avg Average credibility score",
+        "# TYPE truthtrace_credibility_avg gauge",
+        f"truthtrace_credibility_avg {snap.avg_credibility_score:.1f}",
+        "",
+        "# HELP truthtrace_duplicates_blocked Content duplicates blocked",
+        "# TYPE truthtrace_duplicates_blocked counter",
+        f"truthtrace_duplicates_blocked {snap.duplicate_detected_today}",
+        "",
+        "# HELP truthtrace_dedup_entries Content dedup entries",
+        "# TYPE truthtrace_dedup_entries gauge",
+        f"truthtrace_dedup_entries {dedup.stats().get('total_entries', 0)}",
+        "",
+        "# HELP truthtrace_uptime_seconds Application uptime",
+        "# TYPE truthtrace_uptime_seconds gauge",
+        f"truthtrace_uptime_seconds {(datetime.now(timezone.utc) - _metrics_start_time).total_seconds():.0f}",
+        "",
+    ]
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse("\n".join(lines), media_type="text/plain; charset=utf-8")
+
+
+# =============================================================================
 # 蜜罐端点 (用于入侵检测 — 正常用户不应访问)
 # =============================================================================
 

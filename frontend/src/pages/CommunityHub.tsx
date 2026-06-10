@@ -51,12 +51,16 @@ function ExpertTab() {
   useEffect(() => { request("/api/community/expert/queue"); }, []);
 
   const handleApply = async () => {
-    const res = await fetch(API + "/api/community/expert/apply", {
-      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-      body: JSON.stringify({ domain, credentials, proof_url: proofUrl }),
-    });
-    const d = await res.json();
-    setApplyResult(d.message || d.status);
+    try {
+      const res = await fetch(API + "/api/community/expert/apply", {
+        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({ domain, credentials, proof_url: proofUrl }),
+      });
+      const d = await res.json();
+      setApplyResult(d.message || d.status);
+    } catch (e: any) {
+      setApplyResult("应用失败: " + (e.message || "网络错误"));
+    }
   };
 
   if (loading) return <div className="flex items-center gap-2 p-8"><Loader2 className="h-4 w-4 animate-spin" />加载中...</div>;
@@ -103,10 +107,12 @@ function ExpertTab() {
                 <button onClick={async () => {
                   const verdict = prompt("判定 (confirmed/likely_true/misleading/likely_false/false/unverifiable):", "misleading");
                   if (verdict) {
-                    await fetch(API + `/api/community/expert/verify/${e.event_id}`, {
-                      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-                      body: JSON.stringify({ verdict, evidence_links: [], notes: "" }),
-                    });
+                    try {
+                      await fetch(API + `/api/community/expert/verify/${e.event_id}`, {
+                        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+                        body: JSON.stringify({ verdict, evidence_links: [], notes: "" }),
+                      });
+                    } catch (err) { console.error("Verify failed:", err); }
                     request("/api/community/expert/queue");
                   }
                 }} className="px-3 py-1 rounded-lg bg-primary text-primary-foreground text-xs flex-shrink-0 ml-2">验证</button>
