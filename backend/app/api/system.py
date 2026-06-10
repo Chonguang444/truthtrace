@@ -1,12 +1,15 @@
 """
-系统管理 API — 安全/质量/进化/回归测试/隐私
+系统管理 API — 安全/质量/进化/回归测试/隐私/种子数据
 """
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from datetime import datetime, timezone
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 
 from app.auth.jwt import get_current_active_user, get_admin_user
 from app.models.user import User
+from app.models.base import get_db
 
 router = APIRouter()
 
@@ -339,6 +342,33 @@ async def prometheus_metrics():
     ]
     from fastapi.responses import PlainTextResponse
     return PlainTextResponse("\n".join(lines), media_type="text/plain; charset=utf-8")
+
+
+# =============================================================================
+# 种子数据端点 (首次部署后使用, 仅管理员可调用)
+# =============================================================================
+
+@router.post("/system/seed-database")
+async def seed_database_endpoint(_admin: User = Depends(get_admin_user)):
+    """预填充经典案例数据 — 首次部署后调用, 仅管理员"""
+    try:
+        from app.seed_data import seed_database
+        await seed_database()
+        return {"status": "ok", "message": "种子数据已导入。包含14条经典谣言和真实信息案例, 每条附带10引擎分析结果。"}
+    except Exception as e:
+        raise HTTPException(500, f"种子数据导入失败: {str(e)[:200]}")
+
+
+@router.get("/system/seed-status")
+async def seed_status_endpoint(db: AsyncSession = Depends(get_db)):
+    """检查数据库是否已有种子数据"""
+    from app.models.event import Event
+    count = (await db.execute(select(func.count(Event.id)))).scalar() or 0
+    return {
+        "total_events": count,
+        "has_data": count > 0,
+        "message": f"数据库中有 {count} 个事件" if count > 0 else "数据库为空。管理员可调用 POST /api/system/seed-database 导入种子数据。",
+    }
 
 
 # =============================================================================

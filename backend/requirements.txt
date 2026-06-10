@@ -40,7 +40,6 @@ orjson==3.10.7
 # 认证 (Phase 5 D1)
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
-bcrypt==4.0.1
 
 # 速率限制 (Phase 5 A3)
 slowapi==0.1.9
