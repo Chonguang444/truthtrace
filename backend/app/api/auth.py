@@ -3,10 +3,11 @@
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
@@ -22,6 +23,39 @@ from app.auth.jwt import (
 
 logger = logging.getLogger("truthtrace.auth")
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _set_auth_cookies(response: Response, access_token: str, refresh_token: str):
+    """设置 httpOnly 认证 Cookie (防 XSS 窃取)"""
+    secure = False  # 开发环境 False; 生产环境通过 Nginx 设置
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        max_age=60 * 60 * 24,  # 24 hours
+        path="/api",
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 30,  # 30 days
+        path="/api/auth",
+    )
+
+
+def _clear_auth_cookies(response: Response):
+    """清除认证 Cookie"""
+    response.delete_cookie("access_token", path="/api")
+    response.delete_cookie("refresh_token", path="/api/auth")
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +82,19 @@ class RegisterRequest(BaseModel):
     def password_valid(cls, v: str) -> str:
         if len(v) < 8:
             raise ValueError("密码长度至少 8 位")
+        if len(v) > 72:
+            raise ValueError("密码长度不能超过 72 位")
+        # 强度要求: 至少包含大写字母、小写字母、数字、特殊字符中的三类
+        has_upper = any(c.isupper() for c in v)
+        has_lower = any(c.islower() for c in v)
+        has_digit = any(c.isdigit() for c in v)
+        has_special = any(c in "!@#$%^&*()_+-=[]{}|;:',.<>?/`~" for c in v)
+        score = sum([has_upper, has_lower, has_digit, has_special])
+        if score < 3:
+            raise ValueError(
+                "密码强度不足，需要至少包含以下三类字符: "
+                "大写字母、小写字母、数字、特殊字符"
+            )
         return v
 
 
@@ -96,12 +143,13 @@ class SubscriptionRequest(BaseModel):
 @router.post("/auth/register", status_code=201)
 async def register(
     req: RegisterRequest,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """
     用户注册
 
-    创建新用户账号，返回 JWT 访问令牌。
+    创建新用户账号，返回 JWT 访问令牌并通过 httpOnly Cookie 持久化。
     """
     # 检查用户名/邮箱是否已存在
     existing = await db.execute(
@@ -119,7 +167,7 @@ async def register(
         email=req.email,
         hashed_password=hash_password(req.password),
         display_name=req.display_name or req.username,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     db.add(user)
     await db.commit()
@@ -127,6 +175,8 @@ async def register(
 
     access_token = create_access_token(user.id, user.username, user.role.value)
     refresh_token = create_refresh_token(user.id)
+
+    _set_auth_cookies(response, access_token, refresh_token)
 
     return TokenResponse(
         access_token=access_token,
@@ -138,13 +188,25 @@ async def register(
 @router.post("/auth/login")
 async def login(
     req: LoginRequest,
+    req_obj: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """
     用户登录
 
-    支持用户名或邮箱登录。
+    支持用户名或邮箱登录。返回 JWT 并通过 httpOnly Cookie 持久化。
+    频率限制: 每 IP 每 60 秒最多 5 次尝试。
     """
+    # 速率限制检查
+    from app.middleware.rate_limit import check_login_rate_limit
+    client_ip = req_obj.client.host if req_obj.client else "unknown"
+    if not check_login_rate_limit(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="登录尝试过于频繁，请 60 秒后重试",
+        )
+
     # 支持用户名或邮箱
     result = await db.execute(
         select(User).where(
@@ -163,11 +225,13 @@ async def login(
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
     # 更新最后登录时间
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = datetime.now(timezone.utc)
     await db.commit()
 
     access_token = create_access_token(user.id, user.username, user.role.value)
     refresh_token = create_refresh_token(user.id)
+
+    _set_auth_cookies(response, access_token, refresh_token)
 
     return TokenResponse(
         access_token=access_token,
@@ -176,9 +240,17 @@ async def login(
     )
 
 
+@router.post("/auth/logout")
+async def logout(response: Response):
+    """登出 — 清除 httpOnly Cookie"""
+    _clear_auth_cookies(response)
+    return {"status": "logged_out"}
+
+
 @router.post("/auth/refresh")
 async def refresh_token_endpoint(
     req: RefreshRequest,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """刷新访问令牌"""
@@ -198,7 +270,23 @@ async def refresh_token_endpoint(
         raise HTTPException(status_code=401, detail="用户不存在或已禁用")
 
     access_token = create_access_token(user.id, user.username, user.role.value)
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        samesite="lax",
+        max_age=60 * 60 * 24,
+        path="/api",
+    )
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.get("/auth/csrf-token")
+async def get_csrf_token():
+    """获取 CSRF 保护令牌 (用于 SPA 的追加防护)"""
+    from app.security import generate_csrf_token
+    token = generate_csrf_token()
+    return {"csrf_token": token}
 
 
 # ---------------------------------------------------------------------------
@@ -207,10 +295,19 @@ async def refresh_token_endpoint(
 
 @router.get("/auth/me")
 async def get_profile(
+    request: Request,
     current_user: User = Depends(get_current_active_user),
 ):
-    """获取当前用户信息"""
-    return _user_to_dict(current_user)
+    """获取当前用户信息 (支持 Cookie 或 Bearer 认证)"""
+    user_data = _user_to_dict(current_user)
+    # 如果认证是通过 Cookie 完成的, 返回新的 access_token 供前端 Bearer 认证使用
+    cookie_token = request.cookies.get("access_token")
+    if cookie_token:
+        access_token = create_access_token(
+            current_user.id, current_user.username, current_user.role.value
+        )
+        return {"user": user_data, "access_token": access_token}
+    return {"user": user_data}
 
 
 @router.get("/auth/me/favorites")

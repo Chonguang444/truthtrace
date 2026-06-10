@@ -1,5 +1,8 @@
 """
-爬虫基类 — 定义统一接口和通用功能
+爬虫基类 — 定义统一接口、安全沙箱和通用功能
+
+所有爬虫都通过 CrawlerSandbox 发起请求。
+沙箱提供: URL验证 / SSRF防护 / DNS重绑定防护 / 速率限制 / HTML清洗 / 恶意内容检测
 """
 
 import random
@@ -13,6 +16,7 @@ import httpx
 from loguru import logger
 
 from app.config import get_settings
+from app.crawler.sandbox import CrawlerSandbox, SandboxResult
 
 
 @dataclass
@@ -38,7 +42,7 @@ class CrawlResult:
 
 
 class BaseCrawler(ABC):
-    """爬虫抽象基类"""
+    """爬虫抽象基类 — 所有请求通过沙箱"""
 
     def __init__(self, timeout: int | None = None):
         settings = get_settings()
@@ -47,10 +51,31 @@ class BaseCrawler(ABC):
         self.concurrency = settings.crawler_concurrency
 
         self._client: httpx.AsyncClient | None = None
+        self._sandbox: CrawlerSandbox | None = None
+
+    @property
+    def sandbox(self) -> CrawlerSandbox:
+        """懒加载沙箱 — 所有出站请求的唯一通道"""
+        if self._sandbox is None:
+            self._sandbox = CrawlerSandbox()
+        return self._sandbox
+
+    async def safe_fetch(self, url: str, **kwargs) -> SandboxResult:
+        """
+        通过沙箱安全获取URL内容（推荐所有子类使用）。
+
+        相比于直接使用 self.client.get()，此方法提供:
+        - URL安全验证 (SSRF/内网)
+        - DNS重绑定防护
+        - 速率限制
+        - HTML清洗
+        - 恶意内容检测
+        """
+        return await self.sandbox.fetch(url, **kwargs)
 
     @property
     def client(self) -> httpx.AsyncClient:
-        """懒加载 httpx 客户端"""
+        """懒加载 httpx 客户端（保留兼容，新代码应使用 self.sandbox）"""
         if self._client is None:
             self._client = httpx.AsyncClient(
                 timeout=self.timeout,
@@ -103,10 +128,13 @@ class BaseCrawler(ABC):
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     async def close(self):
-        """关闭 HTTP 客户端"""
+        """关闭 HTTP 客户端和沙箱"""
         if self._client:
             await self._client.aclose()
             self._client = None
+        if self._sandbox:
+            await self._sandbox.close()
+            self._sandbox = None
 
     async def __aenter__(self):
         return self

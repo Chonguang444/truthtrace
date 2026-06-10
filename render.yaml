@@ -1,0 +1,113 @@
+# Render Blueprint — 一键部署后端 + 数据库 + Redis
+# 使用: 在 Render Dashboard → Blueprint → 连接仓库
+# 文档: https://render.com/docs/blueprint-spec
+
+services:
+  # =========================================================================
+  # FastAPI 后端
+  # =========================================================================
+  - type: web
+    name: truthtrace-api
+    env: python
+    region: singapore  # 亚洲区域延迟最低
+    buildCommand: |
+      cd backend
+      pip install -r requirements.txt
+    startCommand: |
+      cd backend
+      python -m alembic upgrade head
+      uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: truthtrace-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: truthtrace-redis
+          type: redis
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false  # 部署后在 Dashboard 中手动设为 Vercel 域名
+      - key: ENV
+        value: production
+      - key: DEBUG
+        value: "false"
+    healthCheckPath: /api/health
+    autoDeploy: true
+
+  # =========================================================================
+  # Celery Worker（后台任务）
+  # =========================================================================
+  - type: worker
+    name: truthtrace-worker
+    env: python
+    region: singapore
+    buildCommand: |
+      cd backend
+      pip install -r requirements.txt
+    startCommand: |
+      cd backend
+      celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: truthtrace-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: truthtrace-redis
+          type: redis
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromService:
+          name: truthtrace-redis
+          type: redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          name: truthtrace-redis
+          type: redis
+          property: connectionString
+
+  # =========================================================================
+  # Celery Beat（定时任务）
+  # =========================================================================
+  - type: worker
+    name: truthtrace-beat
+    env: python
+    region: singapore
+    buildCommand: |
+      cd backend
+      pip install -r requirements.txt
+    startCommand: |
+      cd backend
+      celery -A app.tasks.celery_app beat --loglevel=info
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: truthtrace-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: truthtrace-redis
+          type: redis
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromService:
+          name: truthtrace-redis
+          type: redis
+          property: connectionString
+
+databases:
+  - name: truthtrace-db
+    plan: free  # 升级到 starter/pro 以获得持久存储
+    databaseName: truthtrace
+    user: truthtrace
+    ipAllowList: []  # 允许所有来源（Render 内部网络）
+
+  - name: truthtrace-redis
+    plan: free
+    ipAllowList: []

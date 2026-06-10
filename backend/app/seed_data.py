@@ -8,7 +8,7 @@
 
 import uuid
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 # =============================================================================
 # 经典谣言案例 (经科学界反复验证为虚假)
@@ -196,7 +196,7 @@ async def seed_database(db_session=None):
                 keywords=enrich_keywords_crosslang(case["keywords"]),
                 status=EventStatus.RESOLVED,
                 credibility_score=result.credibility_score,
-                first_seen_at=datetime.utcnow(),
+                first_seen_at=datetime.now(timezone.utc),
                 engine_analysis=result.to_dict(),
             )
             session.add(event)
@@ -218,8 +218,8 @@ async def seed_database(db_session=None):
                     content_hash=f"seed_src_{hash(author)}_001",
                     is_original=is_original,
                     authority_score=85.0 if not is_rumor and is_original else 30.0,
-                    published_at=datetime.utcnow(),
-                    fetched_at=datetime.utcnow(),
+                    published_at=datetime.now(timezone.utc),
+                    fetched_at=datetime.now(timezone.utc),
                 )
                 session.add(src)
 

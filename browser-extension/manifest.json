@@ -1,19 +1,18 @@
 {
   "manifest_version": 3,
-  "name": "TruthTrace — 信息可信度即时检测",
-  "version": "1.0.0",
-  "description": "浏览网页时一键检测信息可信度。支持微博/知乎/微信/新闻等全平台溯源分析。",
+  "name": "TruthTrace 2.0 — 实时信息可信度检测",
+  "version": "2.0.0",
+  "description": "浏览网页自动检测可信度。划词即查、链接预扫描、实时叠加层、转发前警告。10引擎AI推理管线驱动。",
   "permissions": [
     "contextMenus",
-    "activeTab",
     "storage",
-    "scripting"
+    "activeTab",
+    "scripting",
+    "alarms"
   ],
   "host_permissions": [
     "http://localhost:8000/*",
-    "https://*.weibo.com/*",
-    "https://*.zhihu.com/*",
-    "https://mp.weixin.qq.com/*"
+    "https://api.truthtrace.app/*"
   ],
   "icons": {
     "16": "icons/icon16.png",
@@ -29,17 +28,12 @@
     "default_title": "TruthTrace — 检测此页面信息可信度"
   },
   "background": {
-    "service_worker": "background/background.js"
+    "service_worker": "background/background.js",
+    "type": "module"
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://*.weibo.com/*",
-        "https://*.zhihu.com/*",
-        "https://mp.weixin.qq.com/*",
-        "https://*.twitter.com/*",
-        "https://*.reddit.com/*"
-      ],
+      "matches": ["<all_urls>"],
       "js": ["content/content.js"],
       "css": ["content/content.css"],
       "run_at": "document_idle"

@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "";  // Empty = relative URL → Vite proxy / Nginx
 
 interface User {
   id: string;
@@ -30,32 +30,18 @@ interface AuthContextType extends AuthState {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const TOKEN_KEY = "truthtrace-token";
-const REFRESH_KEY = "truthtrace-refresh";
-
-function loadTokens(): { access: string | null; refresh: string | null } {
-  try {
-    return {
-      access: localStorage.getItem(TOKEN_KEY),
-      refresh: localStorage.getItem(REFRESH_KEY),
-    };
-  } catch {
-    return { access: null, refresh: null };
-  }
-}
+// In-memory token storage (not localStorage — prevents XSS token theft)
+let inMemoryAccessToken: string | null = null;
+let inMemoryRefreshToken: string | null = null;
 
 function saveTokens(access: string, refresh: string) {
-  try {
-    localStorage.setItem(TOKEN_KEY, access);
-    localStorage.setItem(REFRESH_KEY, refresh);
-  } catch {}
+  inMemoryAccessToken = access;
+  inMemoryRefreshToken = refresh;
 }
 
 function clearTokens() {
-  try {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(REFRESH_KEY);
-  } catch {}
+  inMemoryAccessToken = null;
+  inMemoryRefreshToken = null;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -67,41 +53,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading: true,
   });
 
-  // Restore session on mount
+  // Restore session on mount via httpOnly cookie (secure) or in-memory token
   useEffect(() => {
-    const { access } = loadTokens();
-    if (access) {
-      // Verify token is still valid by fetching /api/auth/me
-      fetch(`${API_BASE}/api/auth/me`, {
-        headers: { Authorization: `Bearer ${access}` },
+    // Try cookie-based session restore first (httpOnly, not XSS-accessible)
+    fetch(`${API_BASE}/api/auth/me`, {
+      credentials: "include",
+    })
+      .then((res) => {
+        if (res.ok) return res.json();
+        throw new Error("Not authenticated");
       })
-        .then((res) => {
-          if (res.ok) return res.json();
-          throw new Error("Token expired");
-        })
-        .then((user) => {
-          const { refresh } = loadTokens();
-          setState({
-            user,
-            accessToken: access,
-            refreshToken: refresh,
-            isAuthenticated: true,
-            isLoading: false,
-          });
-        })
-        .catch(() => {
-          clearTokens();
-          setState((s) => ({ ...s, isLoading: false }));
+      .then((data) => {
+        // data.user: user profile, data.access_token: fresh token for Bearer auth
+        if (data.access_token) {
+          // Store the fresh token in memory for subsequent Bearer auth
+          inMemoryAccessToken = data.access_token;
+        }
+        setState({
+          user: data.user,
+          accessToken: data.access_token || null,
+          refreshToken: inMemoryRefreshToken,
+          isAuthenticated: true,
+          isLoading: false,
         });
-    } else {
-      setState((s) => ({ ...s, isLoading: false }));
-    }
+      })
+      .catch(() => {
+        // Cookie auth failed — user needs to log in
+        clearTokens();
+        setState((s) => ({ ...s, isLoading: false }));
+      });
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
     const res = await fetch(`${API_BASE}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ username, password }),
     });
 
@@ -130,6 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await fetch(`${API_BASE}/api/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ username, email, password, display_name: displayName }),
     });
 
@@ -150,6 +138,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    // Call logout endpoint to clear httpOnly cookies
+    fetch(`${API_BASE}/api/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+    }).catch(() => {});
     clearTokens();
     setState({
       user: null,
@@ -161,13 +154,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshAuth = useCallback(async (): Promise<boolean> => {
-    const { refresh } = loadTokens();
-    if (!refresh) return false;
+    const refresh = inMemoryRefreshToken;
+    if (!refresh) {
+      // Try cookie-based refresh as fallback
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/me`, {
+          credentials: "include",
+        });
+        if (!res.ok) {
+          clearTokens();
+          setState((s) => ({ ...s, isAuthenticated: false, user: null }));
+          return false;
+        }
+        const data = await res.json();
+        if (data.access_token) {
+          inMemoryAccessToken = data.access_token;
+        }
+        setState((s) => ({ ...s, accessToken: data.access_token || null, user: data.user, isAuthenticated: true }));
+        return true;
+      } catch {
+        return false;
+      }
+    }
 
     try {
       const res = await fetch(`${API_BASE}/api/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ refresh_token: refresh }),
       });
 
@@ -178,11 +192,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const data = await res.json();
-      saveTokens(data.access_token, refresh);
+      inMemoryAccessToken = data.access_token;
       setState((s) => ({
         ...s,
         accessToken: data.access_token,
-        refreshToken: refresh,
       }));
       return true;
     } catch {
@@ -191,8 +204,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const getAuthHeaders = useCallback((): Record<string, string> => {
-    if (state.accessToken) {
-      return { Authorization: `Bearer ${state.accessToken}` };
+    const token = inMemoryAccessToken || state.accessToken;
+    if (token) {
+      return { Authorization: `Bearer ${token}` };
     }
     return {};
   }, [state.accessToken]);

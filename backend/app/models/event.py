@@ -3,7 +3,7 @@ TruthTrace 核心数据模型
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy import (
     String, Text, Integer, Float, Boolean,
@@ -64,10 +64,10 @@ class Event(Base):
 
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     last_updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc)
     )
 
     # 关系
@@ -112,7 +112,7 @@ class Source(Base):
     published_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, nullable=True, index=True
     )
-    fetched_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # 溯源字段
     is_original: Mapped[bool] = mapped_column(
@@ -250,10 +250,10 @@ class RumorReport(Base):
     )
 
     published_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc)
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc)
     )
 
     # 关系

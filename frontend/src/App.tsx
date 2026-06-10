@@ -7,6 +7,11 @@ import { RumorSquare } from "./pages/RumorSquare";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { Admin } from "./pages/Admin";
+import LiteracyAcademy from "./pages/LiteracyAcademy";
+import SituationalAwareness from "./pages/SituationalAwareness";
+import CommunityHub from "./pages/CommunityHub";
+import DebunkStudio from "./pages/DebunkStudio";
+import DeveloperPortal from "./pages/DeveloperPortal";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useTheme } from "./hooks/useTheme";
 import { LanguageSwitcher } from "./components/LanguageSwitcher";
@@ -14,7 +19,7 @@ import { NotificationBell } from "./components/NotificationBell";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import {
   Search as SearchIcon, Shield, Activity, Menu, Sun, Moon, Monitor,
-  User, LogOut, Heart, Settings, X, ChevronDown,
+  User, LogOut, Heart, Settings, X, ChevronDown, BookOpen, TrendingUp, Users, PenTool, Code,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 
@@ -163,6 +168,14 @@ function NavBar() {
     { to: "/", label: "首页", icon: Activity },
     { to: "/search", label: "搜索", icon: SearchIcon },
     { to: "/rumors", label: "辟谣广场", icon: Shield },
+    { to: "/academy", label: "信息素养", icon: BookOpen },
+    { to: "/situational", label: "态势感知", icon: TrendingUp },
+    { to: "/community", label: "协作众包", icon: Users },
+  ];
+
+  const moreLinks = [
+    { to: "/studio", label: "辟谣工坊", icon: PenTool },
+    { to: "/developer", label: "API平台", icon: Code },
   ];
 
   return (
@@ -195,6 +208,21 @@ function NavBar() {
               </Link>
             );
           })}
+          {/* More links — smaller */}
+          <div className="ml-1 pl-1 border-l flex items-center gap-1">
+            {moreLinks.map((link) => {
+              const active = location.pathname === link.to;
+              return (
+                <Link key={link.to} to={link.to}
+                  className={`flex items-center gap-1 px-2 py-2 rounded-md text-xs font-medium transition-colors ${
+                    active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                  }`}>
+                  <link.icon className="h-3.5 w-3.5" />
+                  <span className="hidden lg:inline">{link.label}</span>
+                </Link>
+              );
+            })}
+          </div>
           <div className="ml-2 pl-2 border-l flex items-center gap-1">
             <LanguageSwitcher />
             <NotificationBell />
@@ -228,6 +256,14 @@ function NavBar() {
               {link.label}
             </Link>
           ))}
+          <div className="border-t pt-2 mt-2">
+            {moreLinks.map((link) => (
+              <Link key={link.to} to={link.to} onClick={() => setMenuOpen(false)}
+                className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium hover:bg-accent">
+                <link.icon className="h-4 w-4" />{link.label}
+              </Link>
+            ))}
+          </div>
         </div>
       )}
     </nav>
@@ -255,6 +291,11 @@ export default function App() {
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
                 <Route path="/admin" element={<Admin />} />
+                <Route path="/academy" element={<LiteracyAcademy />} />
+                <Route path="/situational" element={<SituationalAwareness />} />
+                <Route path="/community" element={<CommunityHub />} />
+                <Route path="/studio" element={<DebunkStudio />} />
+                <Route path="/developer" element={<DeveloperPortal />} />
               </Routes>
             </main>
           </ErrorBoundary>

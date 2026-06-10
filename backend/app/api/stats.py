@@ -5,7 +5,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text, desc, case
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.models.base import get_db
 from app.models.event import Event, Source, RumorReport, EventStatus, Platform
@@ -33,7 +33,7 @@ async def get_dashboard_summary(
     - 平台分布 top 5
     - 可信度分布 (高/中/低)
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     today = now.date()
     seven_days_ago = now - timedelta(days=7)
 
@@ -188,12 +188,12 @@ async def get_dashboard_stats(
     total_sources = (await db.execute(select(func.count(Source.id)))).scalar() or 0
     total_rumors = (await db.execute(select(func.count(RumorReport.id)))).scalar() or 0
     avg_cred = (await db.execute(select(func.avg(Event.credibility_score)))).scalar() or 50.0
-    today = func.date(datetime.utcnow())
+    today = func.date(datetime.now(timezone.utc))
     today_events = (
         await db.execute(select(func.count(Event.id)).where(func.date(Event.created_at) == today))
     ).scalar() or 0
 
-    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
     recent = await db.execute(
         select(Event.created_at, Event.status).where(Event.created_at >= seven_days_ago)
     )
@@ -293,7 +293,7 @@ async def get_trending_events(
 
     基于最近 N 小时内的活跃度（来源数×0.6 + 可信度×0.4）综合排序。
     """
-    since = datetime.utcnow() - timedelta(hours=hours)
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
 
     subq = (
         select(

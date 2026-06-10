@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from typing import Optional
 from collections import deque, defaultdict
@@ -52,7 +52,7 @@ class CalibrationWeights:
 @dataclass
 class CalibrationSnapshot:
     """校准快照"""
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     total_events: int = 0
     avg_score: float = 50.0
     score_std: float = 15.0
@@ -98,7 +98,7 @@ class ScoreCalibrator:
         """记录用户反馈"""
         self._feedbacks.append({
             "event_id": event_id, "accurate": was_accurate,
-            "type": dispute_type, "at": datetime.utcnow().isoformat(),
+            "type": dispute_type, "at": datetime.now(timezone.utc).isoformat(),
         })
         if was_accurate:
             self._confirmed.add(event_id)
@@ -125,7 +125,7 @@ class ScoreCalibrator:
     def _compute_accuracy(self) -> dict:
         """从反馈中估计准确率"""
         recent = [f for f in self._feedbacks
-                  if datetime.fromisoformat(f["at"]) > datetime.utcnow() - timedelta(days=30)]
+                  if datetime.fromisoformat(f["at"]) > datetime.now(timezone.utc) - timedelta(days=30)]
         if len(recent) < 10:
             return {"estimated_accuracy": 0.8, "sample_size": len(recent), "confidence": "low"}
 
@@ -192,7 +192,7 @@ class ScoreCalibrator:
 
         # 更新内部状态
         self._calibration_count = len(self._scores)
-        self._last_calibration = datetime.utcnow()
+        self._last_calibration = datetime.now(timezone.utc)
 
         logger.info(f"校准完成 (n={len(self._scores)}): {snap.recommendation}")
         return snap

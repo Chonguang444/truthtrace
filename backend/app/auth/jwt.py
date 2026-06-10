@@ -3,12 +3,12 @@ JWT 令牌生成和验证
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -19,18 +19,37 @@ from app.models.user import User
 
 settings = get_settings()
 
-# --- 密码哈希 ---
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# --- 密码哈希 (pbkdf2_sha256 — 无原生库依赖，兼容 Python 3.12+) ---
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 # --- JWT 配置 ---
-SECRET_KEY = getattr(settings, "jwt_secret_key", None)
-if SECRET_KEY is None:
-    # 开发环境使用固定密钥，生产环境务必设置环境变量
-    import os
-    SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "truthtrace-dev-secret-change-in-production")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
-REFRESH_TOKEN_EXPIRE_DAYS = 30
+import os
+import secrets as _secrets
+
+SECRET_KEY = getattr(settings, "jwt_secret_key", None) or os.environ.get("JWT_SECRET_KEY")
+_DEFAULT_DEV_KEY = "truthtrace-dev-secret-change-in-production"
+
+if SECRET_KEY == _DEFAULT_DEV_KEY:
+    raise RuntimeError(
+        "禁止使用默认的 JWT 开发密钥启动服务。\n"
+        "请设置环境变量 JWT_SECRET_KEY 为一个随机生成的安全密钥。\n"
+        "可以用: python -c \"import secrets; print(secrets.token_urlsafe(64))\"\n"
+        "将此输出添加到 .env: JWT_SECRET_KEY=<生成的密钥>"
+    )
+elif SECRET_KEY is None or SECRET_KEY == "":
+    # 开发环境: 生成随机临时密钥 (每次重启令牌失效 — 仅影响开发体验)
+    SECRET_KEY = _secrets.token_urlsafe(64)
+    import warnings
+    warnings.warn(
+        "JWT_SECRET_KEY 未设置! 已生成临时随机密钥。\n"
+        "生产环境必须设置 JWT_SECRET_KEY 环境变量。\n"
+        "设置方法: 在 .env 中添加 JWT_SECRET_KEY=<随机64位安全密钥>\n"
+        "所有现有令牌将在下次重启后失效。",
+        RuntimeWarning,
+    )
+ALGORITHM = getattr(settings, "jwt_algorithm", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = getattr(settings, "jwt_access_expire_minutes", 60 * 24)
+REFRESH_TOKEN_EXPIRE_DAYS = getattr(settings, "jwt_refresh_expire_days", 30)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
@@ -49,26 +68,26 @@ def hash_password(password: str) -> str:
 
 def create_access_token(user_id: uuid.UUID, username: str, role: str = "user") -> str:
     """生成访问令牌 (短期)"""
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
         "sub": str(user_id),
         "username": username,
         "role": role,
         "type": "access",
         "exp": expire,
-        "iat": datetime.utcnow(),
+        "iat": datetime.now(timezone.utc),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
 def create_refresh_token(user_id: uuid.UUID) -> str:
     """生成刷新令牌 (长期)"""
-    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     payload = {
         "sub": str(user_id),
         "type": "refresh",
         "exp": expire,
-        "iat": datetime.utcnow(),
+        "iat": datetime.now(timezone.utc),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -85,15 +104,23 @@ def decode_token(token: str) -> Optional[dict]:
 # --- FastAPI 依赖: 获取当前用户 ---
 
 async def get_current_user(
+    request: Request,
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User | None:
     """
     从 JWT 令牌获取当前用户。
 
+    优先从 Authorization Bearer 头获取令牌；
+    其次从 httpOnly Cookie (access_token) 获取。
+
     如果请求中没有令牌，返回 None（可选认证）。
     如果令牌无效或用户不存在，返回 None。
     """
+    # Cookie 回退 (用于页面刷新时的会话恢复)
+    if not token:
+        token = request.cookies.get("access_token")
+
     if not token:
         return None
 

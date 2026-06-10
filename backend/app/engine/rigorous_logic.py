@@ -45,7 +45,7 @@ L1: 零证据 (无来源声称)
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 import re
@@ -629,7 +629,7 @@ class TemporalReasoner:
         if not published_at:
             return {"assessment": "无发布时间信息, 无法进行时序推理"}
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         age_days = (now - published_at).days
 
         findings = []

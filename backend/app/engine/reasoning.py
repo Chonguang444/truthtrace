@@ -15,7 +15,7 @@ TruthTrace 统一推理管线 — 10 大引擎整合
 """
 
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from app.engine.types import (
@@ -241,7 +241,7 @@ async def run_reasoning_pipeline(
     result = AnalysisResult(
         input_url=url,
         input_title=title,
-        analyzed_at=datetime.utcnow(),
+        analyzed_at=datetime.now(timezone.utc),
     )
     chain = result.reasoning_chain
     step_counter = [0]  # mutable counter for nested functions

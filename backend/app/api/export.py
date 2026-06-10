@@ -6,7 +6,7 @@ import io
 import csv
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -100,7 +100,7 @@ async def export_events_csv(
             _sanitize_csv_value(ev.created_at.isoformat() if ev.created_at else ""),
         ])
 
-    filename = f"truthtrace_events_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"truthtrace_events_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
 
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -157,7 +157,7 @@ async def export_event_sources_csv(
 
     # 使用安全文件名
     safe_title = event.title[:30].replace("/", "_").replace("\\", "_")
-    filename = f"truthtrace_{safe_title}_sources_{datetime.utcnow().strftime('%Y%m%d')}.csv"
+    filename = f"truthtrace_{safe_title}_sources_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"
 
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -340,7 +340,7 @@ def _build_report_html(event: Event) -> str:
   {'<table><tr><th>平台</th><th>链接</th><th>作者</th><th>权威度</th><th>标记</th></tr>' + sources_html + '</table>' if sources_html else '<p>暂无来源数据</p>'}
 
   <div class="footer">
-    <p>由 <strong>TruthTrace</strong> 自动生成 | {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}</p>
+    <p>由 <strong>TruthTrace</strong> 自动生成 | {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}</p>
     <p>本报告由算法自动生成，仅供参考。重要判断请结合人工审核。</p>
   </div>
 </body>

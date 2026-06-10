@@ -7,7 +7,7 @@
 from __future__ import annotations
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 
 logger = logging.getLogger("truthtrace.notifications")
@@ -27,7 +27,7 @@ class Notification:
     event_id: str | None = None
     data: dict = field(default_factory=dict)
     read: bool = False
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def to_dict(self) -> dict:
         return {

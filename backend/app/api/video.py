@@ -27,6 +27,9 @@ async def analyze_video(req: VideoTraceRequest):
 @router.get("/video/detect")
 async def detect_platform(url: str = Query(..., description="视频 URL")):
     """检测视频URL的平台类型"""
+    from app.security import validate_url_safe
+    if not validate_url_safe(url):
+        raise HTTPException(400, "URL 不安全或不允许")
     platform = identify_video_platform(url)
     return {
         "url": url,

@@ -2,30 +2,23 @@
 系统管理 API — 安全/质量/进化/回归测试/隐私
 """
 
-from fastapi import APIRouter, Query, HTTPException
-from datetime import datetime
+from fastapi import APIRouter, Depends, Query, HTTPException
+from datetime import datetime, timezone
+
+from app.auth.jwt import get_current_active_user, get_admin_user
+from app.models.user import User
 
 router = APIRouter()
-
-# =========================================================================
-# 错误修复
-# =========================================================================
-import sqlite3
-try:
-    conn = sqlite3.connect("E:/C++/truthtrace/truthtrace_local.db")
-    conn.execute("ALTER TABLE events ADD COLUMN engine_analysis TEXT")
-    conn.commit()
-    conn.close()
-except Exception:
-    pass
 
 # =============================================================================
 # 安全端点
 # =============================================================================
 
 @router.get("/system/security/status")
-async def security_status():
-    """安全系统状态"""
+async def security_status(
+    current_user: User = Depends(get_admin_user),
+):
+    """安全系统状态 (仅管理员)"""
     from app.security import _csrf_tokens, _content_hashes
     return {
         "input_sanitization": "active",
@@ -36,15 +29,17 @@ async def security_status():
         "privacy_compliance": "active",
         "active_csrf_tokens": len(_csrf_tokens),
         "content_hashes_tracked": len(_content_hashes),
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
-@router.get("/system/privacy/report/{user_id}")
-async def privacy_report(user_id: str):
-    """用户数据隐私报告"""
+@router.get("/system/privacy/report")
+async def privacy_report(
+    current_user: User = Depends(get_current_active_user),
+):
+    """当前用户数据隐私报告 (需认证)"""
     from app.security import PrivacyManager
-    return PrivacyManager.generate_privacy_report(user_id)
+    return PrivacyManager.generate_privacy_report(str(current_user.id))
 
 
 # =============================================================================
@@ -69,8 +64,145 @@ async def quality_metrics():
             "content_rejected": snapshot.content_rejected_today,
         },
         "anomalies": anomalies,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@router.get("/system/quality/dashboard")
+async def quality_dashboard():
+    """
+    综合质量仪表盘 — 聚合质量监控+演化校准+反馈统计+去重+知识健康
+
+    返回结构:
+      - overview: 关键数字摘要
+      - engine_health: 各引擎模块评分分布
+      - feedback_trends: 反馈趋势统计
+      - calibration: 校准器状态
+      - misjudgment: 活跃误判模式
+      - dedup_status: 去重系统状态
+      - knowledge_health: 知识库时效性
+      - anomalies: 检测到的异常
+    """
+    result = {
+        "overview": {},
+        "engine_health": {},
+        "feedback_trends": {},
+        "calibration": {},
+        "misjudgment": {},
+        "dedup_status": {},
+        "knowledge_health": {},
+        "anomalies": [],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # 1. 质量监控
+    from app.quality import get_quality_monitor
+    monitor = get_quality_monitor()
+    snapshot = monitor.snapshot()
+    anomalies = monitor.check_anomalies()
+    total = max(snapshot.total_analyses, 1)
+
+    result["overview"] = {
+        "total_analyses": snapshot.total_analyses,
+        "credibility_avg": round(snapshot.avg_credibility_score, 1),
+        "high_risk_pct": round(snapshot.high_risk_count / total * 100, 1),
+        "low_risk_pct": round(snapshot.low_risk_count / total * 100, 1),
+        "dispute_rate": round(snapshot.disputed_count / total * 100, 1),
+        "duplicates_blocked": snapshot.duplicate_detected_today,
+        "content_rejected": snapshot.content_rejected_today,
+    }
+    result["anomalies"] = [a.get("message", "") for a in anomalies] if anomalies else []
+
+    # 2. 校准器状态
+    from app.evolution.calibrator import get_calibrator
+    calibrator = get_calibrator()
+    c_snap = calibrator.snapshot()
+    result["calibration"] = {
+        "tracked_events": c_snap.total_events,
+        "estimated_accuracy": c_snap.feedback_accuracy,
+        "avg_score": c_snap.avg_score,
+        "score_std": c_snap.score_std,
+        "dispute_rate": round(c_snap.disputed_rate * 100, 1),
+        "current_weights": c_snap.weights.to_dict(),
+        "data_quality": "adequate" if c_snap.total_events >= 100 else "gathering",
+    }
+
+    # 3. 引擎健康 — 基于校准权重反映各引擎是否正常
+    w = c_snap.weights
+    engine_modules = [
+        ("失真检测", w.distortion_weight, 0.5, 1.5),
+        ("逻辑谬误", w.fallacy_weight, 0.5, 1.5),
+        ("统计滥用", w.statistical_weight, 0.5, 1.5),
+        ("拼接式造谣", w.composite_weight, 0.5, 1.5),
+        ("叙事框架", w.narrative_weight, 0.5, 1.5),
+        ("模态漂移", w.drift_weight, 0.5, 1.5),
+    ]
+    result["engine_health"] = {
+        "modules": [
+            {
+                "name": name,
+                "weight": weight,
+                "healthy": min_val <= weight <= max_val,
+                "deviation": round(abs(weight - 1.0), 2),
+                "trend": "normal" if min_val <= weight <= max_val else ("dampened" if weight < 1.0 else "amplified"),
+            }
+            for name, weight, min_val, max_val in engine_modules
+        ]
+    }
+
+    # 4. 反馈趋势
+    from app.api.feedback import _feedback_store, _appeal_store
+    feedback_list = [fb for feeds in _feedback_store.values() for fb in feeds]
+    inaccurate = [fb for fb in feedback_list if fb.get("rating") == "inaccurate"]
+    helpful = [fb for fb in feedback_list if fb.get("rating") == "helpful"]
+    result["feedback_trends"] = {
+        "total_feedback": len(feedback_list),
+        "inaccurate_count": len(inaccurate),
+        "helpful_count": len(helpful),
+        "not_helpful_count": sum(1 for fb in feedback_list if fb.get("rating") == "not_helpful"),
+        "total_appeals": len(_appeal_store),
+        "pending_appeals": sum(1 for a in _appeal_store if a.get("status") == "pending"),
+        "appeal_acceptance_rate": round(
+            sum(1 for a in _appeal_store if a.get("status") == "accepted") / max(1, len(_appeal_store)) * 100, 1
+        ),
+    }
+
+    # 5. 误判模式
+    from app.evolution import get_misjudgment_detector
+    detector = get_misjudgment_detector()
+    active = detector.get_active_patterns()
+    result["misjudgment"] = {
+        "active_patterns": len(active),
+        "patterns": [p.to_dict() for p in active[:5]],
+        "total_discovered": len(active),  # includes resolved
+    }
+
+    # 6. 去重状态
+    try:
+        from app.analyzer.dedup import get_dedup
+        dedup = get_dedup()
+        result["dedup_status"] = dedup.stats()
+    except ImportError:
+        result["dedup_status"] = {"status": "unavailable"}
+
+    # 7. 知识库健康
+    from app.evolution import get_knowledge_expiry_manager
+    expiry_mgr = get_knowledge_expiry_manager()
+    expired = expiry_mgr.check_expiry()
+    result["knowledge_health"] = {
+        "entries_needing_review": len(expired),
+        "entries": expired[:5],
+    }
+
+    # 8. 反馈闭环状态
+    try:
+        from app.evolution.feedback_loop import get_feedback_loop
+        loop = get_feedback_loop()
+        result["feedback_loop"] = loop.status()
+    except ImportError:
+        result["feedback_loop"] = {"status": "unavailable"}
+
+    return result
 
 
 @router.get("/system/quality/check-source")
@@ -140,6 +272,27 @@ async def check_knowledge_expiry():
     mgr = get_knowledge_expiry_manager()
     expired = mgr.check_expiry()
     return {"expired_entries": expired, "count": len(expired)}
+
+
+# =============================================================================
+# CSP 违规报告收集
+# =============================================================================
+
+@router.post("/system/security/csp-report")
+async def csp_report_endpoint(report: dict):
+    """接收浏览器 CSP 违规报告 (report-uri)"""
+    from app.security import record_csp_report
+    record_csp_report(report.get("csp-report", report))
+    return {"status": "recorded"}
+
+
+@router.get("/system/security/csp-reports")
+async def get_csp_reports_endpoint(
+    current_user: User = Depends(get_admin_user),
+):
+    """获取最近的 CSP 违规报告 (仅管理员)"""
+    from app.security import get_csp_reports
+    return {"reports": get_csp_reports()}
 
 
 # =============================================================================

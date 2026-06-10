@@ -12,6 +12,18 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     debug: bool = True
 
+    # 安全
+    jwt_secret_key: str = ""  # 空值触发自动生成 — 生产环境必须显式设置
+    jwt_algorithm: str = "HS256"
+    jwt_access_expire_minutes: int = 60 * 24  # 24 hours
+    jwt_refresh_expire_days: int = 30
+
+    # CORS (逗号分隔的允许域名，或 JSON 数组。留空使用 localhost 默认值)
+    cors_origins: str = ""  # e.g. "https://app.vercel.app,https://www.example.com"
+
+    # AI/LLM
+    anthropic_api_key: str = ""  # Claude API 密钥，用于辟谣工坊/LLM增强分析
+
     # 数据库
     database_url: str = "postgresql+asyncpg://truthtrace:truthtrace_dev@localhost:5432/truthtrace"
     database_url_sync: str = "postgresql://truthtrace:truthtrace_dev@localhost:5432/truthtrace"

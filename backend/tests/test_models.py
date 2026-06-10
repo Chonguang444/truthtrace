@@ -4,7 +4,7 @@
 
 import pytest
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import select
 
 from app.models.event import (
@@ -16,7 +16,7 @@ from app.models.event import (
 @pytest.mark.asyncio
 async def test_create_event(db_session, sample_event_data):
     """创建 Event 记录"""
-    event = Event(**sample_event_data, first_seen_at=datetime.utcnow())
+    event = Event(**sample_event_data, first_seen_at=datetime.now(timezone.utc))
     db_session.add(event)
     await db_session.commit()
 
@@ -30,11 +30,11 @@ async def test_create_event(db_session, sample_event_data):
 @pytest.mark.asyncio
 async def test_create_source(db_session, sample_event_data, sample_source_data):
     """创建 Source 记录"""
-    event = Event(**sample_event_data, first_seen_at=datetime.utcnow())
+    event = Event(**sample_event_data, first_seen_at=datetime.now(timezone.utc))
     db_session.add(event)
     await db_session.flush()
 
-    source = Source(event_id=event.id, **sample_source_data, fetched_at=datetime.utcnow())
+    source = Source(event_id=event.id, **sample_source_data, fetched_at=datetime.now(timezone.utc))
     db_session.add(source)
     await db_session.commit()
 
@@ -48,7 +48,7 @@ async def test_create_source(db_session, sample_event_data, sample_source_data):
 @pytest.mark.asyncio
 async def test_create_propagation_edge(db_session, sample_event_data, sample_source_data):
     """创建 PropagationEdge 记录"""
-    event = Event(**sample_event_data, first_seen_at=datetime.utcnow())
+    event = Event(**sample_event_data, first_seen_at=datetime.now(timezone.utc))
     db_session.add(event)
     await db_session.flush()
 
@@ -58,7 +58,7 @@ async def test_create_propagation_edge(db_session, sample_event_data, sample_sou
         platform=Platform.WEIBO,
         author="A",
         content_hash="hash_a",
-        fetched_at=datetime.utcnow(),
+        fetched_at=datetime.now(timezone.utc),
     )
     source_b = Source(
         event_id=event.id,
@@ -66,7 +66,7 @@ async def test_create_propagation_edge(db_session, sample_event_data, sample_sou
         platform=Platform.ZHIHU,
         author="B",
         content_hash="hash_b",
-        fetched_at=datetime.utcnow(),
+        fetched_at=datetime.now(timezone.utc),
     )
     db_session.add_all([source_a, source_b])
     await db_session.flush()
@@ -76,7 +76,7 @@ async def test_create_propagation_edge(db_session, sample_event_data, sample_sou
         to_source_id=source_b.id,
         edge_type=EdgeType.REPOST,
         weight=2.5,
-        propagated_at=datetime.utcnow(),
+        propagated_at=datetime.now(timezone.utc),
     )
     db_session.add(edge)
     await db_session.commit()
@@ -89,18 +89,18 @@ async def test_create_propagation_edge(db_session, sample_event_data, sample_sou
 @pytest.mark.asyncio
 async def test_create_timeline_node(db_session, sample_event_data, sample_source_data):
     """创建 TimelineNode 记录"""
-    event = Event(**sample_event_data, first_seen_at=datetime.utcnow())
+    event = Event(**sample_event_data, first_seen_at=datetime.now(timezone.utc))
     db_session.add(event)
     await db_session.flush()
 
-    source = Source(event_id=event.id, **sample_source_data, fetched_at=datetime.utcnow())
+    source = Source(event_id=event.id, **sample_source_data, fetched_at=datetime.now(timezone.utc))
     db_session.add(source)
     await db_session.flush()
 
     node = TimelineNode(
         event_id=event.id,
         source_id=source.id,
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(timezone.utc),
         description="首次报道事件",
         significance=1.5,
     )
@@ -115,7 +115,7 @@ async def test_create_timeline_node(db_session, sample_event_data, sample_source
 @pytest.mark.asyncio
 async def test_create_rumor_report(db_session, sample_event_data):
     """创建 RumorReport 记录"""
-    event = Event(**sample_event_data, first_seen_at=datetime.utcnow())
+    event = Event(**sample_event_data, first_seen_at=datetime.now(timezone.utc))
     db_session.add(event)
     await db_session.flush()
 
@@ -126,7 +126,7 @@ async def test_create_rumor_report(db_session, sample_event_data):
         verdict="false",
         verified_sources=[{"url": "https://gov.cn/check", "title": "官方澄清"}],
         correction="该食品符合国家安全标准",
-        published_at=datetime.utcnow(),
+        published_at=datetime.now(timezone.utc),
     )
     db_session.add(report)
     await db_session.commit()
@@ -139,11 +139,11 @@ async def test_create_rumor_report(db_session, sample_event_data):
 @pytest.mark.asyncio
 async def test_event_cascade_delete(db_session, sample_event_data, sample_source_data):
     """级联删除: 删除 Event 时自动删除关联数据"""
-    event = Event(**sample_event_data, first_seen_at=datetime.utcnow())
+    event = Event(**sample_event_data, first_seen_at=datetime.now(timezone.utc))
     db_session.add(event)
     await db_session.flush()
 
-    source = Source(event_id=event.id, **sample_source_data, fetched_at=datetime.utcnow())
+    source = Source(event_id=event.id, **sample_source_data, fetched_at=datetime.now(timezone.utc))
     db_session.add(source)
     await db_session.commit()
 
@@ -161,7 +161,7 @@ async def test_event_cascade_delete(db_session, sample_event_data, sample_source
 @pytest.mark.asyncio
 async def test_unique_rumor_report_per_event(db_session, sample_event_data):
     """每个 Event 只能有一个 RumorReport"""
-    event = Event(**sample_event_data, first_seen_at=datetime.utcnow())
+    event = Event(**sample_event_data, first_seen_at=datetime.now(timezone.utc))
     db_session.add(event)
     await db_session.flush()
 
@@ -170,7 +170,7 @@ async def test_unique_rumor_report_per_event(db_session, sample_event_data):
         rumor_claim="claim 1",
         fact_check_result="check 1",
         verdict="false",
-        published_at=datetime.utcnow(),
+        published_at=datetime.now(timezone.utc),
     )
     db_session.add(report1)
     await db_session.commit()
@@ -181,7 +181,7 @@ async def test_unique_rumor_report_per_event(db_session, sample_event_data):
         rumor_claim="claim 2",
         fact_check_result="check 2",
         verdict="misleading",
-        published_at=datetime.utcnow(),
+        published_at=datetime.now(timezone.utc),
     )
     db_session.add(report2)
     with pytest.raises(Exception):
@@ -197,14 +197,14 @@ async def test_search_by_title(db_session):
             summary="关于食品安全的报道",
             keywords=["食品", "安全"],
             status=EventStatus.EMERGING,
-            first_seen_at=datetime.utcnow(),
+            first_seen_at=datetime.now(timezone.utc),
         ),
         Event(
             title="交通事故事件",
             summary="关于交通安全的报道",
             keywords=["交通", "事故"],
             status=EventStatus.ACTIVE,
-            first_seen_at=datetime.utcnow(),
+            first_seen_at=datetime.now(timezone.utc),
         ),
     ]
     db_session.add_all(events)
@@ -221,7 +221,7 @@ async def test_search_by_title(db_session):
 @pytest.mark.asyncio
 async def test_event_status_transition(db_session, sample_event_data):
     """事件状态流转"""
-    event = Event(**sample_event_data, first_seen_at=datetime.utcnow())
+    event = Event(**sample_event_data, first_seen_at=datetime.now(timezone.utc))
     db_session.add(event)
     await db_session.commit()
 

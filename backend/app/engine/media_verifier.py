@@ -18,7 +18,7 @@
 
 from __future__ import annotations
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -439,7 +439,7 @@ def detect_deepfake_signals(media_info: dict) -> dict:
     if media_info.get("first_seen_at"):
         try:
             first_seen = datetime.fromisoformat(str(media_info["first_seen_at"]))
-            days_ago = (datetime.utcnow() - first_seen).days
+            days_ago = (datetime.now(timezone.utc) - first_seen).days
             if days_ago < 1:
                 signals.append({
                     "signal": "极近出现",

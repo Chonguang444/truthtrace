@@ -5,12 +5,13 @@ FastAPI 应用入口，集成速率限制、CORS、结构化日志
 
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.models.base import engine, Base
 from app.api import search, events, trace, rumors, stats, auth, ws, export, monitor, admin, feedback, reporting, video, system
+from app.api import literacy, situational, community, debunk_studio, vertical_medical, developer
 from app.middleware.rate_limit import setup_rate_limit, get_limiter
 from app.security import SecurityHeadersMiddleware
 
@@ -27,12 +28,38 @@ logger = logging.getLogger("truthtrace")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期：启动时创建数据库表和索引"""
-    from sqlalchemy import text as sa_text
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        # 创建 GIN 全文搜索索引 (ORM 不支持复合函数表达式索引)
-        try:
+    """应用生命周期：自动迁移数据库（Alembic）"""
+    from sqlalchemy import text as sa_text, inspect
+
+    # --- 数据库迁移 ---
+    # 生产环境推荐: DATABASE_URL="..." alembic upgrade head && uvicorn ...
+    # 开发环境: 自动使用 Alembic 运行迁移
+    try:
+        from alembic.config import Config
+        from alembic import command as alembic_command
+        import os as _os
+
+        alembic_cfg = Config(_os.path.join(_os.path.dirname(__file__), "..", "alembic.ini"))
+        # Override DB URL for sync migration
+        sync_url = settings.database_url.replace("+asyncpg", "").replace("+aiosqlite", "")
+        alembic_cfg.set_main_option("sqlalchemy.url", sync_url)
+
+        async with engine.begin() as conn:
+            def _run_migrations(sync_conn):
+                # Point alembic to the existing connection
+                alembic_cfg.attributes['connection'] = sync_conn
+                alembic_command.upgrade(alembic_cfg, "head")
+            await conn.run_sync(_run_migrations)
+        logger.info("Database migration complete")
+    except Exception as e:
+        # Fallback: use create_all for development convenience
+        logger.warning(f"Alembic migration skipped (falling back to create_all): {e}")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+    # --- 全文搜索索引 (PostgreSQL only, auto-skipped by SQLite) ---
+    try:
+        async with engine.begin() as conn:
             await conn.execute(sa_text(
                 "CREATE INDEX IF NOT EXISTS ix_events_search_tsv ON events "
                 "USING gin (to_tsvector('simple', coalesce(title, '')) "
@@ -42,8 +69,9 @@ async def lifespan(app: FastAPI):
                 "CREATE INDEX IF NOT EXISTS ix_events_keywords_gin ON events "
                 "USING gin (keywords)"
             ))
-        except Exception as e:
-            logger.warning(f"GIN index creation skipped: {e}")
+    except Exception:
+        logger.debug("GIN indexes skipped (not PostgreSQL or already exist)")
+
     logger.info(f"{settings.app_name} v{settings.app_version} started")
     # 启动自动采集器(部署后立即开始爬取)
     try:
@@ -70,9 +98,17 @@ app = FastAPI(
 )
 
 # --- CORS 配置 ---
+if settings.cors_origins:
+    # Parse from comma-separated env var: "https://a.com,https://b.com"
+    cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+else:
+    cors_origins = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -83,6 +119,38 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # --- 速率限制 ---
 limiter = setup_rate_limit(app)
+
+
+# --- 全局异常处理器 (兜底所有未处理的 API 异常) ---
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """捕获所有未处理的异常，返回统一错误格式，避免 500 空白页"""
+    logger.error(
+        f"未处理异常 {request.method} {request.url.path}: {type(exc).__name__}: {exc}",
+        exc_info=settings.debug,
+    )
+    # 如果是已知的 HTTP 异常，保留原始状态码
+    from fastapi.responses import JSONResponse
+    if isinstance(exc, HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail, "path": request.url.path},
+        )
+    # 数据库连接错误
+    err_msg = str(exc)
+    if "connect" in err_msg.lower() or "connection" in err_msg.lower():
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "服务暂时不可用，请稍后重试", "path": request.url.path},
+        )
+    # 通用错误
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "服务器内部错误" if not settings.debug else f"{type(exc).__name__}: {err_msg[:200]}",
+            "path": request.url.path,
+        },
+    )
 
 
 # --- 请求日志中间件 ---
@@ -109,6 +177,12 @@ app.include_router(feedback.router, prefix="/api", tags=["反馈"])
 app.include_router(reporting.router, prefix="/api", tags=["报表"])
 app.include_router(video.router, prefix="/api", tags=["视频"])
 app.include_router(system.router, prefix="/api", tags=["系统"])
+app.include_router(literacy.router, prefix="/api", tags=["信息素养学院"])
+app.include_router(situational.router, prefix="/api", tags=["态势感知"])
+app.include_router(community.router, prefix="/api", tags=["协作众包"])
+app.include_router(debunk_studio.router, prefix="/api", tags=["辟谣工坊"])
+app.include_router(vertical_medical.router, prefix="/api", tags=["医疗垂直"])
+app.include_router(developer.router, prefix="/api", tags=["API平台"])
 
 
 # --- 核心端点 ---
@@ -131,14 +205,19 @@ async def api_root():
         "version": settings.app_version,
         "endpoints": {
             "search": "/api/search?q=关键词",
-            "search_trending": "/api/search/trending",
             "trace": "POST /api/trace",
-            "trace_batch": "POST /api/trace/batch",
-            "tasks": "/api/tasks/{task_id}",
             "events": "/api/events/{event_id}",
             "rumors": "/api/rumors",
             "stats": "/api/stats",
             "health": "/api/health",
+        },
+        "new_features": {
+            "literacy_academy": "/api/literacy/challenges — 信息素养挑战赛",
+            "situational_awareness": "/api/situational/hotspots — 实时态势感知",
+            "community": "/api/community/bounties — 协作众包验证",
+            "debunk_studio": "/api/studio/generate-article — 辟谣工坊",
+            "medical_vertical": "/api/vertical/medical/verify — 医疗验证",
+            "developer_api": "/api/developer/docs — API开放平台",
         },
         "docs": "/api/docs",
     }

@@ -92,3 +92,41 @@ def setup_rate_limit(app: FastAPI) -> Limiter:
 def get_limiter(app: FastAPI) -> Limiter | None:
     """获取已注册的 limiter 实例"""
     return getattr(app.state, "limiter", None)
+
+
+# =============================================================================
+# 内存级限流回退 (用于敏感端点如 /auth/login 的额外保护)
+# =============================================================================
+
+import time as _time
+from collections import defaultdict
+
+_login_attempts: dict[str, list[float]] = defaultdict(list)
+_LOGIN_MAX_ATTEMPTS = 5
+_LOGIN_WINDOW = 60  # 60 秒窗口
+
+
+def check_login_rate_limit(client_ip: str) -> bool:
+    """
+    检查登录尝试频率。返回 True 表示允许，False 表示超限。
+
+    每 IP 每 60 秒最多 5 次尝试。
+    """
+    now = _time.time()
+    # 清理过期记录
+    _login_attempts[client_ip] = [
+        t for t in _login_attempts[client_ip]
+        if now - t < _LOGIN_WINDOW
+    ]
+    if len(_login_attempts[client_ip]) >= _LOGIN_MAX_ATTEMPTS:
+        return False
+    _login_attempts[client_ip].append(now)
+    # 清理旧 IP 记录防止内存泄漏
+    if len(_login_attempts) > 10000:
+        expired_ips = [
+            ip for ip, attempts in _login_attempts.items()
+            if not attempts or now - max(attempts) > _LOGIN_WINDOW * 2
+        ]
+        for ip in expired_ips:
+            del _login_attempts[ip]
+    return True

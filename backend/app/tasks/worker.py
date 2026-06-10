@@ -74,7 +74,7 @@ def trace_url_task(
     可通过 progress_callback(msg) 接收进度更新。
     """
     import asyncio
-    from datetime import datetime
+    from datetime import datetime, timezone
     from app.config import get_settings
 
     settings = get_settings()
@@ -331,7 +331,7 @@ async def _persist_trace_result(
     形成完整的数据闭环，使搜索 API 可以查到溯源结果。
     """
     import uuid
-    from datetime import datetime
+    from datetime import datetime, timezone
     from loguru import logger
 
     from app.models.base import async_session_factory
@@ -349,7 +349,7 @@ async def _persist_trace_result(
                 keywords=keywords,
                 status=EventStatus.EMERGING,
                 credibility_score=50.0,
-                first_seen_at=datetime.utcnow(),
+                first_seen_at=datetime.now(timezone.utc),
             )
             session.add(event)
             await session.flush()  # 获取 event.id
@@ -378,7 +378,7 @@ async def _persist_trace_result(
                     title=node.title or "",
                     content_hash=node.content_hash or "",
                     published_at=node.published_at,
-                    fetched_at=datetime.utcnow(),
+                    fetched_at=datetime.now(timezone.utc),
                     is_original=is_original,
                     authority_score=authority_score,
                     engagement_count=node.engagement if node.engagement else None,

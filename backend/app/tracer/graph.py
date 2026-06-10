@@ -3,7 +3,7 @@
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from loguru import logger
@@ -103,7 +103,7 @@ class PropagationGraphBuilder:
             author=seed_author,
             title=seed_content[:100] if seed_content else "",
             content_hash=self._get_fingerprinter().compute(seed_content),
-            published_at=datetime.utcnow(),
+            published_at=datetime.now(timezone.utc),
         )
         graph.add_node(seed_node)
 

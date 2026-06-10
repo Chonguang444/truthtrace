@@ -5,7 +5,7 @@
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -58,7 +58,7 @@ async def submit_feedback(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """提交对分析结果的反馈"""
+    """提交对分析结果的反馈 — 自动触发反馈闭环管道"""
     # 验证事件存在
     try:
         event_uid = uuid.UUID(req.event_id)
@@ -79,7 +79,7 @@ async def submit_feedback(
         "dimension": req.dimension,
         "event_title": event.title,
         "current_credibility": event.credibility_score,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "reviewed": False,
         "reviewed_by": None,
         "review_note": "",
@@ -88,6 +88,20 @@ async def submit_feedback(
     if req.event_id not in _feedback_store:
         _feedback_store[req.event_id] = []
     _feedback_store[req.event_id].append(feedback)
+
+    # === 触发反馈闭环管道 (后台) ===
+    try:
+        from app.evolution.feedback_loop import get_feedback_loop
+        loop = get_feedback_loop()
+        loop_result = await loop.process_feedback(feedback)
+        if loop_result.action_required != "none":
+            import logging
+            logging.getLogger("truthtrace.feedback").warning(
+                f"反馈闭环需要关注: {loop_result.action_required} — "
+                f"分类={loop_result.classification}"
+            )
+    except Exception:
+        pass  # 闭环失败不影响反馈提交
 
     return {"id": feedback["id"], "status": "submitted"}
 
@@ -126,7 +140,7 @@ async def submit_appeal(
         "status": "pending",  # pending / accepted / rejected
         "reviewed_by": None,
         "review_note": "",
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
     _appeal_store.append(appeal)
 

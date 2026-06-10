@@ -5,7 +5,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import Counter
 
 from app.models.base import get_db
@@ -20,7 +20,7 @@ async def narrative_trends(
     db: AsyncSession = Depends(get_db),
 ):
     """叙事框架趋势 — 过去N天内各叙事的出现频率"""
-    since = datetime.utcnow() - timedelta(days=days)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
     stmt = select(Event).where(
         Event.engine_analysis.isnot(None),
         Event.created_at >= since,
@@ -62,7 +62,7 @@ async def verdict_distribution(
     db: AsyncSession = Depends(get_db),
 ):
     """判定分布 — 过去N天的引擎判定统计"""
-    since = datetime.utcnow() - timedelta(days=days)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
     stmt = select(Event).where(
         Event.engine_analysis.isnot(None),
         Event.created_at >= since,
@@ -126,7 +126,7 @@ async def credibility_timeline(
     db: AsyncSession = Depends(get_db),
 ):
     """可信度评分时间线 — 过去N天的每日平均可信度"""
-    since = datetime.utcnow() - timedelta(days=days)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
     stmt = select(Event).where(Event.created_at >= since).order_by(Event.created_at.asc())
     result = await db.execute(stmt)
     events = result.scalars().all()

@@ -1,9 +1,65 @@
 import { useState, useCallback, useRef, useMemo } from "react";
 import { useAuth } from "../contexts/AuthContext";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "";  // Empty = relative URL → Vite proxy / Nginx
 const DEFAULT_TIMEOUT = 30000;
 const MAX_RETRIES = 2;
+const CSRF_CACHE_DURATION = 45 * 60 * 1000;  // 45 min (CSRF token lives 1 hour)
+let _csrfToken: string | null = null;
+let _csrfFetchedAt: number = 0;
+
+/**
+ * 获取 CSRF 令牌 (带缓存避免每次请求都获取)
+ * 用于所有状态变更请求 (POST/PUT/PATCH/DELETE)
+ */
+async function getCsrfToken(): Promise<string> {
+  const now = Date.now();
+  if (_csrfToken && (now - _csrfFetchedAt) < CSRF_CACHE_DURATION) {
+    return _csrfToken;
+  }
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/csrf-token`, {
+      credentials: "include",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      _csrfToken = data.csrf_token || "";
+      _csrfFetchedAt = now;
+      return _csrfToken || "";
+    }
+  } catch { /* 非阻塞: CSRF 不可用时回退到无头模式 */ }
+  return "";
+}
+
+/**
+ * 输入净化 — 防止 XSS 从用户输入渗入
+ * 移除危险标签和事件处理器
+ */
+export function sanitizeInput(input: string): string {
+  if (!input) return "";
+  return input
+    .replace(/<script[^>]*>.*?<\/script>/gi, "")
+    .replace(/<iframe[^>]*>.*?<\/iframe>/gi, "")
+    .replace(/<object[^>]*>.*?<\/object>/gi, "")
+    .replace(/<embed[^>]*>/gi, "")
+    .replace(/javascript\s*:/gi, "")
+    .replace(/on\w+\s*=\s*["'][^"']*["']/gi, "")
+    .replace(/on\w+\s*=\s*\S+/gi, "")
+    .trim();
+}
+
+/**
+ * 文本显示净化 — 转义 HTML 实体
+ * (用于用户生成内容的纯文本展示)
+ */
+export function escapeHtml(text: string): string {
+  const map: Record<string, string> = {
+    "&": "&amp;", "<": "&lt;", ">": "&gt;",
+    '"': "&quot;", "'": "&#039;",
+  };
+  return text.replace(/[&<>"']/g, (ch) => map[ch] || ch);
+}
 
 interface ApiState<T> {
   data: T | null;
@@ -20,6 +76,7 @@ export function useApi<T>() {
     retryCount: 0,
   });
   const abortRef = useRef<AbortController | null>(null);
+  const lastPathRef = useRef<string>("");
   const { getAuthHeaders, refreshAuth } = useAuth();
 
   const request = useCallback(
@@ -27,13 +84,15 @@ export function useApi<T>() {
       path: string,
       options?: RequestInit & { timeout?: number; retries?: number; auth?: boolean }
     ): Promise<T | null> => {
-      if (abortRef.current) {
+      // Only abort if the path changed (avoid race between unrelated requests)
+      if (abortRef.current && lastPathRef.current !== path) {
         abortRef.current.abort();
       }
+      lastPathRef.current = path;
 
       const controller = new AbortController();
       abortRef.current = controller;
-      const timeout = options?.timeout ?? DEFAULT_TIMEOUT;
+      const timeoutMs = options?.timeout ?? DEFAULT_TIMEOUT;
       const maxRetries = options?.retries ?? MAX_RETRIES;
       const needsAuth = options?.auth ?? false;
       const { retries: _, timeout: _t, auth: _a, ...fetchOptions } = options ?? {};
@@ -45,10 +104,11 @@ export function useApi<T>() {
           await new Promise((r) => setTimeout(r, Math.pow(2, attempt - 1) * 1000));
         }
 
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
         try {
           setState((s) => ({ ...s, loading: true, error: null, retryCount: attempt }));
 
-          const timeoutId = setTimeout(() => controller.abort(), timeout);
+          timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
           // Build headers with auth if needed
           const headers: Record<string, string> = {
@@ -58,24 +118,30 @@ export function useApi<T>() {
             const authHeaders = getAuthHeaders();
             Object.assign(headers, authHeaders);
           }
+          // Inject CSRF token for state-changing requests
+          const isMutation = options?.method && ["POST", "PUT", "PATCH", "DELETE"].includes(options.method.toUpperCase());
+          if (isMutation) {
+            const csrfToken = await getCsrfToken();
+            if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+          }
 
           const res = await fetch(`${API_BASE}${path}`, {
             headers,
             signal: controller.signal,
+            credentials: "include",  // Always include cookies for httpOnly auth
             ...fetchOptions,
           });
 
           clearTimeout(timeoutId);
 
-          // 401: try refresh token once
-          if (res.status === 401 && needsAuth && attempt === 0) {
-            const refreshed = await refreshAuth();
-            if (refreshed) continue;
-          }
-
           if (!res.ok) {
             const errData = await res.json().catch(() => ({}));
             const msg = (errData as any).detail || `HTTP ${res.status}`;
+            if (res.status === 401 && attempt === 0) {
+              // Try cookie-based refresh first, then in-memory
+              const refreshed = await refreshAuth();
+              if (refreshed) continue;
+            }
             if (res.status >= 500 && attempt < maxRetries) {
               lastError = msg;
               continue;
@@ -88,9 +154,12 @@ export function useApi<T>() {
           return data;
 
         } catch (err: any) {
-          clearTimeout(timeout);
+          if (timeoutId) clearTimeout(timeoutId);
           if (err.name === "AbortError") {
-            lastError = "请求超时或已取消";
+            // Only report timeout if it was THIS request that timed out (not aborted by new request)
+            if (lastPathRef.current === path) {
+              lastError = "请求超时或已取消";
+            }
             break;
           }
           lastError = err.message || "请求失败";
@@ -210,9 +279,9 @@ export function useSubscriptions() {
 
 export function useExport() {
   const download = useCallback((url: string, filename: string) => {
-    const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+    const base = import.meta.env.VITE_API_BASE_URL || "";
     const a = document.createElement("a");
-    a.href = `${API_BASE}${url}`;
+    a.href = `${base}${url}`;
     a.download = filename;
     document.body.appendChild(a);
     a.click();

@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -94,7 +94,7 @@ class ContentDedupManager:
 
     def register(self, simhash: str, title: str, url: str, event_id: str):
         """注册新事件以进行未来去重"""
-        self._fingerprints[simhash] = datetime.utcnow()
+        self._fingerprints[simhash] = datetime.now(timezone.utc)
 
         # 存储标题关键词
         keywords = set(
@@ -117,12 +117,12 @@ class ContentDedupManager:
 
         # 内存管理
         if len(self._fingerprints) > 50000:
-            cutoff = datetime.utcnow() - timedelta(days=7)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=7)
             self._fingerprints = {k: v for k, v in self._fingerprints.items() if v > cutoff}
 
     def cleanup(self):
         """清理过期数据"""
-        cutoff = datetime.utcnow() - timedelta(days=30)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
         self._fingerprints = {k: v for k, v in self._fingerprints.items() if v > cutoff}
 
 
@@ -240,7 +240,7 @@ class SourceQualityEvaluator:
 @dataclass
 class QualityMetrics:
     """质量指标快照"""
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     total_analyses: int = 0
     high_risk_count: int = 0          # 判定为虚假/可能虚假
     low_risk_count: int = 0           # 判定为真实/可能真实
@@ -292,7 +292,7 @@ class QualityMonitor:
         self._disputed_analyses.append({
             "event_id": event_id,
             "feedback": user_feedback,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
     def check_anomalies(self) -> list[dict]:

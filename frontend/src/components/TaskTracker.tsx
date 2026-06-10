@@ -16,7 +16,7 @@ interface TaskState {
   error?: string;
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
 const PROGRESS_STEPS = [
   "解析 URL 跳转链...",

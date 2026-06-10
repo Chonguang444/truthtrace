@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from typing import Optional
 from collections import defaultdict
@@ -82,7 +82,7 @@ class AutoCollector:
         if self.state.is_running:
             return
         self.state.is_running = True
-        self.state.started_at = datetime.utcnow()
+        self.state.started_at = datetime.now(timezone.utc)
         logger.info(f"AutoCollector 启动, 覆盖 {len(self.PLATFORMS)} 个平台")
 
         # Step 1: 立即执行一次全量爬取(不等定时器)
@@ -98,7 +98,7 @@ class AutoCollector:
             self._task.cancel()
 
     def get_state(self) -> CollectorState:
-        self.state.uptime_seconds = int((datetime.utcnow() - self.state.started_at).total_seconds()) if self.state.started_at else 0
+        self.state.uptime_seconds = int((datetime.now(timezone.utc) - self.state.started_at).total_seconds()) if self.state.started_at else 0
         return self.state
 
     # ---- 主循环 ----
@@ -116,7 +116,7 @@ class AutoCollector:
                 await asyncio.sleep(300)
 
     async def _run_eligible_platforms(self):
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for platform, config in self.PLATFORMS.items():
             if self._failure_counts[platform] >= 5:
                 continue
@@ -142,7 +142,7 @@ class AutoCollector:
         logger.info(f"开始爬取: {platform}")
         try:
             items = await method()
-            self._last_crawl[platform] = datetime.utcnow()
+            self._last_crawl[platform] = datetime.now(timezone.utc)
             self._failure_counts[platform] = 0
             self._backoff[platform] = 1
 

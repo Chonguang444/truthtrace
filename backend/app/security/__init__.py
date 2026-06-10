@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 import hashlib
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import Request, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -113,6 +114,19 @@ def validate_url_safe(url: str) -> bool:
         return True
     except Exception:
         return False
+
+
+async def require_safe_url(url: str) -> str:
+    """
+    FastAPI 依赖: 验证 URL 安全性。
+
+    用法:
+        @router.post("/trace")
+        async def trace(url: str = Depends(require_safe_url)): ...
+    """
+    if not validate_url_safe(url):
+        raise HTTPException(status_code=400, detail=f"URL 不安全或不被允许: {url[:100]}")
+    return url
 
 
 # =============================================================================
@@ -258,16 +272,27 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
 
+        # HSTS (仅HTTPS — 生产环境由 Nginx 处理，此处保留以防直连)
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains; preload"
+            )
+
         # CSP (Content-Security-Policy) — 仅对HTML响应
+        # 生产环境: 移除 'unsafe-inline' 后使用 nonce 或 hash
         content_type = response.headers.get("content-type", "")
         if "text/html" in content_type:
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline'; "
+                "script-src 'self'; "
                 "style-src 'self' 'unsafe-inline'; "
                 "img-src 'self' data: https:; "
                 "connect-src 'self' https: wss:; "
                 "font-src 'self'; "
+                "frame-ancestors 'none'; "
+                "base-uri 'self'; "
+                "form-action 'self'; "
+                "report-uri /api/system/security/csp-report; "
             )
 
         return response
@@ -329,7 +354,7 @@ class PrivacyManager:
 
 
 # =============================================================================
-# CSRF 令牌
+# CSRF 令牌 (支持内存/Redis 双后端)
 # =============================================================================
 
 import secrets
@@ -338,9 +363,32 @@ import time
 _csrf_tokens: dict[str, float] = {}
 
 
+def _csrf_use_redis() -> bool:
+    """检测 Redis 是否可用 — 用于 CSRF 令牌跨进程共享"""
+    try:
+        from app.config import get_settings
+        import redis as _redis
+        r = _redis.from_url(get_settings().redis_url, socket_connect_timeout=1)
+        r.ping()
+        r.close()
+        return True
+    except Exception:
+        return False
+
+
 def generate_csrf_token() -> str:
-    """生成CSRF令牌 (有效期1小时)"""
+    """生成CSRF令牌 (有效期1小时, 优先使用Redis)"""
     token = secrets.token_urlsafe(32)
+    if _csrf_use_redis():
+        try:
+            from app.config import get_settings
+            import redis as _redis
+            r = _redis.from_url(get_settings().redis_url, socket_connect_timeout=1)
+            r.setex(f"csrf:{token}", 3600, "1")
+            r.close()
+            return token
+        except Exception:
+            pass  # 回退到内存存储
     _csrf_tokens[token] = time.time()
     # 清理过期token
     expired = [t for t, ts in _csrf_tokens.items() if time.time() - ts > 3600]
@@ -351,6 +399,21 @@ def generate_csrf_token() -> str:
 
 def verify_csrf_token(token: str) -> bool:
     """验证CSRF令牌"""
+    if _csrf_use_redis():
+        try:
+            from app.config import get_settings
+            import redis as _redis
+            r = _redis.from_url(get_settings().redis_url, socket_connect_timeout=1)
+            exists = r.get(f"csrf:{token}")
+            r.close()
+            if exists:
+                r = _redis.from_url(get_settings().redis_url, socket_connect_timeout=1)
+                r.delete(f"csrf:{token}")  # 一次性使用
+                r.close()
+                return True
+            return False
+        except Exception:
+            pass  # 回退到内存存储
     ts = _csrf_tokens.get(token, 0)
     if time.time() - ts > 3600:
         _csrf_tokens.pop(token, None)
@@ -387,3 +450,34 @@ def compute_content_hash(title: str, text: str) -> str:
     # 去除空格和标点差异
     normalized = re.sub(r'\s+', ' ', normalized)
     return hashlib.sha256(normalized.encode()).hexdigest()[:32]
+
+
+# =============================================================================
+# CSP 违规报告收集 (report-uri / report-to)
+# =============================================================================
+
+_csp_reports: list[dict] = []
+
+
+def record_csp_report(report: dict) -> None:
+    """记录 CSP 违规报告"""
+    report["received_at"] = datetime.now(timezone.utc).isoformat()
+    _csp_reports.append(report)
+    if len(_csp_reports) > 1000:
+        _csp_reports[:] = _csp_reports[-500:]  # 保留最近500条
+    logger.warning(
+        f"CSP 违规: {report.get('blocked-uri', 'unknown')} — "
+        f"{report.get('violated-directive', 'unknown')}"
+    )
+
+
+def get_csp_reports(limit: int = 50) -> list[dict]:
+    """获取最近的 CSP 违规报告"""
+    return _csp_reports[-limit:]
+
+
+def clear_csp_reports() -> int:
+    """清除 CSP 违规报告"""
+    count = len(_csp_reports)
+    _csp_reports.clear()
+    return count

@@ -295,6 +295,43 @@ export function TraceReport() {
       </div>
 
       {/* ========================================================================================= */}
+      {/* Highlights — 学术期刊风格的关键发现摘要 */}
+      {/* ========================================================================================= */}
+      <div className="mb-8 p-6 rounded-xl border-2 border-primary/30 bg-primary/[0.02] print:border print:border-black">
+        <h2 className="text-sm font-bold mb-3 flex items-center gap-2 text-primary">
+          <BookOpen className="h-4 w-4" /> Highlights
+        </h2>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div className="flex items-start gap-2 text-xs">
+            <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[9px] font-bold">1</span>
+            <span>
+              <strong>综合可信度 {score}/100</strong> — {score >= 60 ? "与多个权威来源一致，可信度较高" : score >= 40 ? "存在部分争议或信息模糊，建议谨慎采信" : "检测到多个风险信号，可信度较低"}
+            </span>
+          </div>
+          <div className="flex items-start gap-2 text-xs">
+            <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[9px] font-bold">2</span>
+            <span>
+              共检测到 <strong>{distortionMatches.length + fallacyMatches.length + statMatches.length + compositeMatches.length}</strong> 处风险信号
+              （失真:{distortionMatches.length} · 谬误:{fallacyMatches.length} · 统计滥用:{statMatches.length} · 拼接式造谣:{compositeMatches.length}）
+            </span>
+          </div>
+          <div className="flex items-start gap-2 text-xs">
+            <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[9px] font-bold">3</span>
+            <span>
+              溯源深度: <strong>{trace.depth_achieved || "L1"}</strong> · 覆盖 {report.total_sources || 0} 个传播节点 · 疑似原始来源 {report.original_source_count || 0} 个
+            </span>
+          </div>
+          <div className="flex items-start gap-2 text-xs">
+            <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[9px] font-bold">4</span>
+            <span>
+              主导叙事: <strong>{narrative.dominant_narrative || "未检测到明确叙事框架"}</strong>
+              {narrative.manipulation_score > 30 && <span className="text-yellow-600"> · 操纵评分 {narrative.manipulation_score}/100</span>}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ========================================================================================= */}
       {/* 1. 摘要 (Abstract) */}
       {/* ========================================================================================= */}
       <section className="mb-8 p-8 rounded-xl border bg-card print:border-none print:p-4">
@@ -344,69 +381,127 @@ export function TraceReport() {
         </p>
 
         <div className="grid md:grid-cols-2 gap-3">
-          {/* 模块 1 */}
-          <div className="p-3 rounded-lg border bg-card">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-semibold">1. 信息失真检测</span>
-              <span className={`text-[10px] font-bold ${distortionMatches.length >= 3 ? "text-red-600" : "text-green-600"}`}>
-                {distortionMatches.length} 处匹配
-              </span>
+          {/* 模块 1: 信息失真 */}
+          <div className={`p-4 rounded-lg border transition-colors ${
+            distortionMatches.length >= 5 ? "border-l-red-500 border-l-4 bg-red-50/30 dark:bg-red-950/10" :
+            distortionMatches.length >= 2 ? "border-l-yellow-500 border-l-4 bg-yellow-50/30 dark:bg-yellow-950/10" :
+            "border-l-green-500 border-l-4"
+          }`}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold">1. 信息失真检测</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                distortionMatches.length >= 3 ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+              }`}>{distortionMatches.length} 处</span>
             </div>
             <p className="text-[10px] text-muted-foreground leading-relaxed">
-              对 7 种失真模式进行检测：源头伪造、内容篡改、错误引用、忽略语境、情感操纵、权威绑架、语境剥离。
-              {distortionMatches.length > 0 && ` 主要发现: ${distortionMatches.slice(0, 2).map((m: any) => m.description?.slice(0, 40)).join("; ")}`}
+              检测 7 种失真模式：源头伪造、内容篡改、错误引用、忽略语境、情感操纵、权威绑架、语境剥离。
+              {distortionMatches.length > 0
+                ? ` 主要信号: ${distortionMatches.slice(0, 2).map((m: any) => m.description?.slice(0, 40)).join("; ")}`
+                : " 未检测到明显失真信号。"}
             </p>
           </div>
 
-          {/* 模块 2 */}
-          <div className="p-3 rounded-lg border bg-card">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-semibold">2. 逻辑谬误检测</span>
-              <span className={`text-[10px] font-bold ${(fallacy.fallacy_count || 0) >= 2 ? "text-yellow-600" : "text-green-600"}`}>
-                {fallacy.fallacy_count || 0} 处匹配
-              </span>
+          {/* 模块 2: 逻辑谬误 */}
+          <div className={`p-4 rounded-lg border transition-colors ${
+            (fallacy.fallacy_count || 0) >= 3 ? "border-l-red-500 border-l-4 bg-red-50/30 dark:bg-red-950/10" :
+            (fallacy.fallacy_count || 0) >= 1 ? "border-l-yellow-500 border-l-4 bg-yellow-50/30 dark:bg-yellow-950/10" :
+            "border-l-green-500 border-l-4"
+          }`}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold">2. 逻辑谬误检测</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                (fallacy.fallacy_count || 0) >= 2 ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+              }`}>{fallacy.fallacy_count || 0} 处</span>
             </div>
             <p className="text-[10px] text-muted-foreground leading-relaxed">
-              对 12 种逻辑谬误进行形式化检测。{(fallacy.fallacy_count || 0) > 0 && ` 识别到: ${fallacyMatches.slice(0, 2).map((m: any) => m.description?.slice(0, 35)).join("; ")}`}
+              检测 12 种逻辑谬误：人身攻击、稻草人、假二分、滑坡论证、循环论证、错误类比等。
+              {(fallacy.fallacy_count || 0) > 0
+                ? ` 识别到: ${fallacyMatches.slice(0, 2).map((m: any) => m.description?.slice(0, 35)).join("; ")}`
+                : " 未检测到逻辑谬误。"}
             </p>
           </div>
 
-          {/* 模块 3 */}
-          <div className="p-3 rounded-lg border bg-card">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-semibold">3. 统计滥用检测</span>
-              <span className={`text-[10px] font-bold ${(statistical.risk_score || 0) >= 40 ? "text-orange-600" : "text-green-600"}`}>
-                风险 {(statistical.risk_score || 0).toFixed(0)}/100
-              </span>
+          {/* 模块 3: 统计滥用 */}
+          <div className={`p-4 rounded-lg border transition-colors ${
+            (statistical.risk_score || 0) >= 60 ? "border-l-red-500 border-l-4 bg-red-50/30 dark:bg-red-950/10" :
+            (statistical.risk_score || 0) >= 30 ? "border-l-yellow-500 border-l-4 bg-yellow-50/30 dark:bg-yellow-950/10" :
+            "border-l-green-500 border-l-4"
+          }`}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold">3. 统计滥用检测</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                (statistical.risk_score || 0) >= 40 ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+              }`}>风险 {(statistical.risk_score || 0).toFixed(0)}/100</span>
             </div>
             <p className="text-[10px] text-muted-foreground leading-relaxed">
-              检测 8 种统计滥用，包括：相对/绝对风险混淆、样本量忽略、混杂因素遗漏、基线率忽略等。
+              检测 8 种统计滥用：相对/绝对风险混淆、样本量忽略、混杂因素遗漏、基线忽略、p值操纵等。
+              {statMatches.length > 0 && ` 发现 ${statMatches.length} 处可疑信号。`}
             </p>
           </div>
 
-          {/* 模块 4 */}
-          <div className="p-3 rounded-lg border bg-card">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-semibold">4. 拼接式造谣检测</span>
-              <span className={`text-[10px] font-bold ${(composite.composite_risk_score || 0) >= 30 ? "text-red-600" : "text-green-600"}`}>
-                风险 {(composite.composite_risk_score || 0).toFixed(0)}/100
-              </span>
+          {/* 模块 4: 拼接式造谣 */}
+          <div className={`p-4 rounded-lg border transition-colors ${
+            (composite.composite_risk_score || 0) >= 50 ? "border-l-red-500 border-l-4 bg-red-50/30 dark:bg-red-950/10" :
+            (composite.composite_risk_score || 0) >= 20 ? "border-l-yellow-500 border-l-4 bg-yellow-50/30 dark:bg-yellow-950/10" :
+            "border-l-green-500 border-l-4"
+          }`}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold">4. 拼接式造谣检测</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                (composite.composite_risk_score || 0) >= 30 ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+              }`}>风险 {(composite.composite_risk_score || 0).toFixed(0)}/100</span>
             </div>
             <p className="text-[10px] text-muted-foreground leading-relaxed">
-              检测 A事实+B事实→虚假D结论的逻辑跳跃，以及传播链中的意义突变。
+              检测 A+B→D 逻辑跳跃（多事实拼接形成虚假结论）以及传播链中的意义突变。
+              {compositeMatches.length > 0 ? ` 发现 ${compositeMatches.length} 处可疑拼接。` : " 未检测到拼接式造谣。"}
             </p>
           </div>
 
-          {/* 模块 5 */}
-          <div className="p-3 rounded-lg border bg-card col-span-2">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-semibold">5-10. 溯源深度 · 知识验证 · 叙事框架 · 模态漂移 · 综合判定</span>
-              <span className="text-[10px] font-bold text-muted-foreground">{narrativeMatches.length + modalityMatches.length} 处额外信号</span>
+          {/* 模块 5-6: 溯源深度 + 知识验证 */}
+          <div className="p-4 rounded-lg border col-span-2 grid sm:grid-cols-2 gap-4">
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold">5. 溯源深度</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-bold">{trace.depth_achieved || "L1"}</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground">五层溯源: {trace.depth_description || "从原始来源逐层追溯信息传播路径"}</p>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold">6. 领域知识验证</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-bold">{domain.domain || "通用"}</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground">6 领域知识核查: {domain.verified_count || 0} 条已验证 · {domain.unverified_count || 0} 条待验证</p>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold">7. 叙事框架</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 font-bold">{narrativeMatches.length} 匹配</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground">12 种叙事框架: 主导={narrative.dominant_narrative || "无"} · 操纵评分={narrative.manipulation_score || 0}/100</p>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold">8. 模态漂移</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 font-bold">{modalityMatches.length} 信号</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground">5 种模态漂移: 漂移评分={modality.drift_score || 0}/100 · 跨媒介变形检测</p>
+            </div>
+          </div>
+
+          {/* 模块 9-10: 综合判定 + 纠偏建议 */}
+          <div className="p-4 rounded-lg border col-span-2 bg-primary/[0.02]">
+            <div className="flex items-center gap-2 mb-2">
+              <Shield className="h-4 w-4 text-primary" />
+              <span className="text-xs font-bold">9-10. 综合判定 + 纠偏建议</span>
+              <span className="text-[10px] text-muted-foreground ml-auto">
+                置信度: {engineAnalysis?.confidence || "moderate"}
+              </span>
             </div>
             <p className="text-[10px] text-muted-foreground leading-relaxed">
-              溯源深度: {trace.depth_achieved || "L1"} · 领域: {domain.domain || "通用"} ·
-              主导叙事: {narrative.dominant_narrative || "无"} · 操纵评分: {narrative.manipulation_score || 0}/100 ·
-              模态漂移: {modality.drift_score || 0}/100
+              基于 10 引擎结果的综合加权评分。采用乘法风险模型：
+              每个失真信号的风险不是简单相加，而是考虑其因果连锁效应。
+              评分公式: 50 + credibility_bonus − (independent_penalty × chain_multiplier × evidence_discount)
             </p>
           </div>
         </div>
@@ -667,6 +762,46 @@ export function TraceReport() {
           </div>
         </section>
       )}
+
+      {/* ========================================================================================= */}
+      {/* 6. 数据可用性声明 (Data Availability) — 学术论文标准 */}
+      {/* ========================================================================================= */}
+      <section className="mb-8 p-6 rounded-xl border bg-card print:border-none print:p-4 avoid-break">
+        <h2 className="text-sm font-bold mb-3 flex items-center gap-2 border-b pb-2">
+          <FileText className="h-4 w-4" /> 数据可用性声明 (Data Availability)
+        </h2>
+        <div className="space-y-2 text-xs text-muted-foreground">
+          <p>
+            本报告中引用的所有公开数据均可通过以下途径获取:
+          </p>
+          <ul className="list-disc list-inside space-y-1">
+            <li><strong>传播链路数据:</strong> 通过 TruthTrace API <code className="text-[11px] bg-muted px-1 rounded">/api/events/{eventId}/propagation</code> 获取 JSON 格式的完整传播图数据。</li>
+            <li><strong>引擎分析结果:</strong> 通过 <code className="text-[11px] bg-muted px-1 rounded">/api/events/{eventId}/analysis</code> 获取机器可读的完整分析输出。</li>
+            <li><strong>权威来源引用:</strong> 参考文献部分列出的所有来源均可通过其提供的 URL 公开访问。</li>
+            <li><strong>统计参照数据:</strong> 本报告引用的已知统计事实均来自公开的同行评审研究或官方统计公报。</li>
+          </ul>
+          <p className="text-[10px] italic mt-2">
+            TruthTrace 引擎本身的开源代码可在 <a href="https://github.com/Chonguang444/truthtrace" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">https://github.com/Chonguang444/truthtrace</a> 获取（MIT 协议）。
+          </p>
+        </div>
+      </section>
+
+      {/* ========================================================================================= */}
+      {/* 7. 利益声明 (Competing Interests) */}
+      {/* ========================================================================================= */}
+      <section className="mb-8 p-6 rounded-xl border bg-card print:border-none print:p-4 avoid-break">
+        <h2 className="text-sm font-bold mb-3 flex items-center gap-2 border-b pb-2">
+          <Shield className="h-4 w-4" /> 利益声明 (Competing Interests)
+        </h2>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          TruthTrace 是一个开源的非商业信息验证工具。本报告的生成未受任何商业、政治或个人利益的干预。
+          分析引擎使用的权威知识库条目均基于公开可获取的科学文献、法规标准和官方数据。
+        </p>
+        <p className="text-xs text-muted-foreground mt-2">
+          <strong>分析透明度:</strong> 每个检测模块的匹配规则和阈值均可在源代码的 <code className="text-[11px] bg-muted px-1 rounded">backend/app/engine/</code> 目录下查阅。
+          所有推理步骤均记录在本报告附录 A 中，可被第三方重现和审查。
+        </p>
+      </section>
 
       {/* ========================================================================================= */}
       {/* 免责声明 */}

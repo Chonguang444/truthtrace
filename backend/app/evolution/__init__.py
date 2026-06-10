@@ -18,7 +18,7 @@
 from __future__ import annotations
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -162,14 +162,14 @@ class MisjudgmentDetector:
                 )
                 if not existing:
                     pattern = MisjudgmentPattern(
-                        id=f"pattern_{dim}_{datetime.utcnow().strftime('%Y%m%d')}",
+                        id=f"pattern_{dim}_{datetime.now(timezone.utc).strftime('%Y%m%d')}",
                         pattern_name=f"维度 '{dim}' 的系统性误判",
                         description=f"在 {len(items)} 个事件中，维度 '{dim}' 被用户反馈为不准确。",
                         affected_rules=[dim],
                         example_event_ids=[f.get("event_id", "") for f in items[:5]],
                         frequency=len(items),
                         severity="high" if len(items) >= 10 else "medium",
-                        discovered_at=datetime.utcnow(),
+                        discovered_at=datetime.now(timezone.utc),
                     )
                     self._patterns.append(pattern)
                     new_patterns.append(pattern)
@@ -205,7 +205,7 @@ class RuleVersion:
     change_reason: str     # 变更原因 (引用反馈/误判模式ID)
     changed_by: str        # 谁做的变更
     version: int           # 递增版本号
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class RuleVersionManager:
@@ -342,7 +342,7 @@ async def run_regression_tests() -> dict:
     """
     from app.engine.reasoning import run_reasoning_pipeline
 
-    results = {"passed": 0, "failed": 0, "failures": [], "ran_at": datetime.utcnow().isoformat()}
+    results = {"passed": 0, "failed": 0, "failures": [], "ran_at": datetime.now(timezone.utc).isoformat()}
 
     for case in _regression_cases:
         try:
@@ -411,7 +411,7 @@ class KnowledgeExpiryManager:
 
     def check_expiry(self) -> list[dict]:
         """检查哪些知识可能需要更新"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         needs_review = []
 
         for check in self.CHECKS:

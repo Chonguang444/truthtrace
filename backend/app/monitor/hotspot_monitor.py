@@ -13,7 +13,7 @@
 from __future__ import annotations
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from typing import Optional
 import hashlib
@@ -116,7 +116,7 @@ class HotspotCrawler:
                         summary=item.get("note", "") or word,
                         rank=item.get("rank", 0),
                         heat_score=float(item.get("raw_hot", 0)),
-                        crawled_at=datetime.utcnow(),
+                        crawled_at=datetime.now(timezone.utc),
                     ))
                 return items
         except Exception as e:
@@ -150,7 +150,7 @@ class HotspotCrawler:
                         summary=target.get("excerpt", "") or title,
                         rank=item.get("index", 0),
                         heat_score=float(target.get("heat", 0)),
-                        crawled_at=datetime.utcnow(),
+                        crawled_at=datetime.now(timezone.utc),
                     ))
                 return items
         except Exception as e:
@@ -185,7 +185,7 @@ class HotspotCrawler:
                             summary=word_clean,
                             rank=i + 1,
                             heat_score=float(20 - i) * 50,
-                            crawled_at=datetime.utcnow(),
+                            crawled_at=datetime.now(timezone.utc),
                         ))
                 return items
         except Exception as e:
@@ -253,14 +253,14 @@ class NarrativeAlertManager:
             a.narrative_type == dominant for a in self._active_alerts
         ):
             alert = NarrativeAlert(
-                id=f"alert_{dominant}_{datetime.utcnow().strftime('%Y%m%d%H%M')}",
+                id=f"alert_{dominant}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M')}",
                 narrative_type=dominant,
                 title=f"检测到 {self._narrative_label(dominant)} 叙事在热点中涌现",
                 description=f"最近爬取的 {count} 条热点中检测到 '{self._narrative_label(dominant)}' 叙事框架, 操纵性评分均分 {manipulation:.0f}/100。建议关注该叙事的传播情况。",
                 detected_items=list(self._seen_narratives[dominant]),
                 manipulation_score=manipulation,
                 severity="high" if manipulation > 60 else "medium" if manipulation > 40 else "low",
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
             )
             self._active_alerts.append(alert)
             logger.warning(f"🚨 叙事告警: {alert.title}")
@@ -325,7 +325,7 @@ class MonitorScheduler:
         # 1. 爬取
         items = await self.crawler.crawl_all()
         self.state.total_crawled += len(items)
-        self.state.last_crawl_at = datetime.utcnow()
+        self.state.last_crawl_at = datetime.now(timezone.utc)
 
         if not items:
             return items

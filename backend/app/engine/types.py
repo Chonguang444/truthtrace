@@ -161,6 +161,8 @@ class DomainType(str, Enum):
     LAW_REGULATION = "law_regulation"    # 法律法规
     ENVIRONMENT_CLIMATE = "environment_climate"  # 环境气候
     HISTORY = "history"                  # 历史事件
+    TECH = "tech"                        # 科技
+    EDUCATION = "education"              # 教育
     GENERAL = "general"                  # 一般/跨领域
 
 

@@ -161,6 +161,9 @@ async def submit_batch_trace(request: BatchTraceRequest):
     semaphore = asyncio.Semaphore(request.max_concurrency)
 
     async def process_one(url: str) -> dict:
+        from app.security import validate_url_safe
+        if not validate_url_safe(url):
+            return {"url": url, "task_id": "", "status": "blocked", "error": "URL 不安全或不允许"}
         task_id = str(_uuid.uuid4())
         trace_req = TraceRequest(url=url, deep_trace=request.deep_trace)
 
@@ -307,6 +310,9 @@ async def resolve_url_chain(
     跟随 HTTP 重定向和常见短链接服务，还原原始 URL。
     支持：t.cn, bit.ly, ow.ly, short.com 等短链接服务。
     """
+    from app.security import validate_url_safe
+    if not validate_url_safe(url):
+        raise HTTPException(400, "URL 不安全或不允许")
     from app.crawler.resolver import URLResolver
 
     resolver = URLResolver()

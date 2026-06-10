@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, text
 from uuid import UUID
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.models.base import get_db
 from app.models.event import Event, Source, RumorReport, EventStatus
@@ -28,7 +28,7 @@ async def admin_overview(db: AsyncSession = Depends(get_db)):
     total_rumors = (await db.execute(select(func.count(RumorReport.id)))).scalar() or 0
 
     # 最近24h事件
-    since = datetime.utcnow() - timedelta(hours=24)
+    since = datetime.now(timezone.utc) - timedelta(hours=24)
     recent_events = (await db.execute(
         select(func.count(Event.id)).where(Event.created_at >= since)
     )).scalar() or 0
@@ -45,7 +45,7 @@ async def admin_overview(db: AsyncSession = Depends(get_db)):
         "total_rumor_reports": total_rumors,
         "recent_24h_events": recent_events,
         "low_credibility_events": low_cred,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -253,5 +253,5 @@ async def system_health():
             for v in checks.values()
         ) else "degraded",
         "checks": checks,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }

@@ -5,7 +5,7 @@ Celery Beat 定时任务 — 监控爬取/报表生成/清理
 from celery import shared_task
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger("truthtrace.scheduled")
 
@@ -59,7 +59,7 @@ def generate_narrative_report():
                         verdicts[verdict] += 1
 
                 return {
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "events_analyzed": len(events),
                     "narratives": dict(narratives.most_common(10)),
                     "verdicts": dict(verdicts),
@@ -79,7 +79,7 @@ def generate_narrative_report():
 def cleanup_old_notifications():
     """每天凌晨3:30：清理30天前的通知"""
     from app.notifications.notification_service import _notification_store
-    cutoff = datetime.utcnow()
+    cutoff = datetime.now(timezone.utc)
     cleaned = 0
     for user_id in list(_notification_store.keys()):
         before = len(_notification_store[user_id])
@@ -104,7 +104,7 @@ def generate_weekly_report():
     asyncio.set_event_loop(loop)
     try:
         async def _run():
-            week_ago = datetime.utcnow() - timedelta(days=7)
+            week_ago = datetime.now(timezone.utc) - timedelta(days=7)
             async with async_session_factory() as session:
                 stmt = select(Event).where(Event.created_at >= week_ago)
                 result = await session.execute(stmt)
@@ -116,13 +116,13 @@ def generate_weekly_report():
                 high_cred = sum(1 for e in events if e.credibility_score >= 70)
 
                 return {
-                    "period": f"{week_ago.strftime('%Y-%m-%d')} ~ {datetime.utcnow().strftime('%Y-%m-%d')}",
+                    "period": f"{week_ago.strftime('%Y-%m-%d')} ~ {datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
                     "total_new_events": total,
                     "analyzed_events": analyzed,
                     "low_credibility_events": low_cred,
                     "high_credibility_events": high_cred,
                     "rumor_rate": round(low_cred / max(1, total) * 100, 1),
-                    "generated_at": datetime.utcnow().isoformat(),
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
                 }
 
         report = loop.run_until_complete(_run())

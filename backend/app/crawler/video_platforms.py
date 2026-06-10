@@ -1,11 +1,13 @@
 """
-视频平台爬虫 — 抖音/快手/哔哩哔哩
+视频平台爬虫 — 抖音/快手/哔哩哔哩/YouTube/微博视频
 
 支持:
 1. 从视频URL提取标题/描述/文字内容
 2. 视频元数据提取 (时长/发布时间/作者/播放量)
 3. 评论采集 (高赞评论)
-4. 将文字内容送入10引擎推理分析
+4. 内容指纹去重
+5. 速率限制和自动重试
+6. 将文字内容送入10引擎推理分析
 
 注意:
 - 各平台的API可能随时变化
@@ -18,12 +20,74 @@ from __future__ import annotations
 import re
 import json
 import logging
+import asyncio
+import time
 from datetime import datetime
 from dataclasses import dataclass, field
-from typing import Optional
+from functools import wraps
+from typing import Optional, Callable, Awaitable
 import hashlib
 
 logger = logging.getLogger("truthtrace.video")
+
+# =============================================================================
+# 速率限制 & 重试工具
+# =============================================================================
+
+class RateLimiter:
+    """简单的异步速率限制器"""
+
+    def __init__(self, calls_per_second: float = 2.0):
+        self.interval = 1.0 / calls_per_second
+        self._last_call = 0.0
+
+    async def wait(self):
+        """等待直到可以发出下一个请求"""
+        now = time.monotonic()
+        wait_time = self._last_call + self.interval - now
+        if wait_time > 0:
+            await asyncio.sleep(wait_time)
+        self._last_call = time.monotonic()
+
+
+# 各平台的速率限制器实例
+_rate_limiters: dict[str, RateLimiter] = {
+    "bilibili": RateLimiter(3.0),   # B站公开API较宽松
+    "douyin": RateLimiter(1.0),     # 抖音API较敏感
+    "kuaishou": RateLimiter(1.0),   # 快手
+    "youtube": RateLimiter(2.0),    # YouTube oEmbed
+    "weibo_video": RateLimiter(2.0),
+}
+
+
+def with_retry(max_retries: int = 2, base_delay: float = 1.0):
+    """异步重试装饰器，指数退避"""
+    def decorator(func: Callable[..., Awaitable]):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            last_error = None
+            for attempt in range(max_retries + 1):
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as e:
+                    last_error = e
+                    if attempt < max_retries:
+                        delay = base_delay * (2 ** attempt)
+                        logger.warning(f"[重试] {func.__name__} 第{attempt + 1}次失败: {e}, {delay}s后重试...")
+                        await asyncio.sleep(delay)
+            logger.error(f"[重试耗尽] {func.__name__} 全部{max_retries + 1}次尝试均失败: {last_error}")
+            return None
+        return wrapper
+    return decorator
+
+
+def compute_content_hash(text: str) -> str:
+    """计算文本内容的指纹哈希（用于去重）"""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:24]
+
+
+# 已分析内容的哈希缓存（防止重复分析同一视频）
+_content_hash_cache: dict[str, dict] = {}
 
 
 # =============================================================================
@@ -136,11 +200,15 @@ class BilibiliCrawler:
                 return m.group(1)
         return None
 
+    @with_retry(max_retries=2, base_delay=1.0)
     async def fetch(self, url: str) -> VideoInfo | None:
         """获取B站视频信息"""
         bvid = self.extract_bvid(url)
         if not bvid:
             return None
+
+        limiter = _rate_limiters["bilibili"]
+        await limiter.wait()
 
         try:
             import httpx
@@ -208,6 +276,182 @@ class BilibiliCrawler:
 
 
 # =============================================================================
+# YouTube 爬虫 (使用 oEmbed API，无需 API Key)
+# =============================================================================
+
+class YouTubeCrawler:
+    """YouTube 视频信息爬虫 — 使用 oEmbed 端点 (公开)"""
+
+    OEMBED_URL = "https://www.youtube.com/oembed"
+    INFO_URL = "https://www.youtube.com/watch"
+
+    @staticmethod
+    def extract_video_id(url: str) -> str | None:
+        """从 YouTube URL 提取 video ID"""
+        patterns = [
+            r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/v/)([A-Za-z0-9_-]{11})',
+            r'youtube\.com/shorts/([A-Za-z0-9_-]{11})',
+        ]
+        for p in patterns:
+            m = re.search(p, url)
+            if m:
+                return m.group(1)
+        return None
+
+    @with_retry(max_retries=2, base_delay=1.5)
+    async def fetch(self, url: str) -> VideoInfo | None:
+        """获取YouTube视频信息"""
+        video_id = self.extract_video_id(url)
+        if not video_id:
+            return None
+
+        limiter = _rate_limiters["youtube"]
+        await limiter.wait()
+
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=15) as client:
+                # 使用 oEmbed API 获取基础信息
+                resp = await client.get(
+                    self.OEMBED_URL,
+                    params={"url": f"https://www.youtube.com/watch?v={video_id}", "format": "json"},
+                    headers={"User-Agent": "Mozilla/5.0"}
+                )
+
+                if resp.status_code != 200:
+                    # 回退: 从页面meta标签提取
+                    return await self._parse_from_page(client, video_id, url)
+
+                data = resp.json()
+                title = data.get("title", "")
+                author = data.get("author_name", "")
+                author_url = data.get("author_url", "")
+
+                # 从页面提取更多元数据
+                page_info = await self._scrape_watch_page(client, video_id)
+                if page_info:
+                    title = page_info.get("title", title)
+                    desc = page_info.get("description", "")
+                    views = page_info.get("views", 0)
+                    likes = page_info.get("likes", 0)
+                    published = page_info.get("published_at")
+                    tags = page_info.get("tags", [])
+                else:
+                    desc = ""
+                    views = 0
+                    likes = 0
+                    published = None
+                    tags = []
+
+                info = VideoInfo(
+                    platform="youtube",
+                    video_id=video_id,
+                    url=f"https://www.youtube.com/watch?v={video_id}",
+                    title=title,
+                    description=desc[:1000] if desc else "",
+                    author_name=author,
+                    author_id=author_url.split("/")[-1] if "/" in author_url else author,
+                    view_count=views,
+                    like_count=likes,
+                    published_at=published,
+                    tags=tags,
+                    thumbnail_url=f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg",
+                )
+
+                logger.info(f"[YouTube] 获取视频: {info.title[:40]}... ({info.view_count}观看)")
+                return info
+
+        except Exception as e:
+            logger.warning(f"[YouTube] oEmbed 失败: {e}")
+            return None
+
+    async def _parse_from_page(self, client, video_id: str, url: str) -> VideoInfo | None:
+        """从 YouTube watch 页面 meta 标签提取信息"""
+        try:
+            resp = await client.get(
+                f"https://www.youtube.com/watch?v={video_id}",
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                         "Accept-Language": "zh-CN,zh;q=0.9"}
+            )
+            html = resp.text
+
+            title = ""
+            m = re.search(r'<meta\s+name="title"\s+content="([^"]+)"', html)
+            if m: title = m.group(1)
+
+            desc = ""
+            m = re.search(r'<meta\s+name="description"\s+content="([^"]+)"', html)
+            if m: desc = m.group(1)
+
+            author = ""
+            m = re.search(r'"channelId":"([^"]+)"', html)
+            channel_id = m.group(1) if m else ""
+            m = re.search(r'"ownerChannelName":"([^"]+)"', html)
+            if m: author = m.group(1)
+
+            return VideoInfo(
+                platform="youtube",
+                video_id=video_id,
+                url=f"https://www.youtube.com/watch?v={video_id}",
+                title=title or "YouTube视频",
+                description=desc or "",
+                author_name=author,
+                author_id=channel_id,
+                thumbnail_url=f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg",
+            )
+        except Exception:
+            return None
+
+    async def _scrape_watch_page(self, client, video_id: str) -> dict | None:
+        """爬取YouTube watch页面获取结构化数据 (ytInitialData)"""
+        try:
+            resp = await client.get(
+                f"https://www.youtube.com/watch?v={video_id}",
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"}
+            )
+            html = resp.text
+
+            # 提取 ytInitialPlayerResponse 或 ytInitialData
+            m = re.search(r'var\s+ytInitialPlayerResponse\s*=\s*({.+?});\s*var\s+', html, re.DOTALL)
+            if not m:
+                m = re.search(r'var\s+ytInitialPlayerResponse\s*=\s*({.+?});</script>', html, re.DOTALL)
+
+            if not m:
+                return None
+
+            data = json.loads(m.group(1))
+
+            video_details = data.get("videoDetails", {})
+            microformat = data.get("microformat", {}).get("playerMicroformatRenderer", {})
+
+            result = {
+                "title": video_details.get("title", ""),
+                "description": video_details.get("shortDescription", "") if video_details.get("shortDescription") else "",
+                "views": int(video_details.get("viewCount", 0)),
+                "likes": 0,
+                "tags": video_details.get("keywords", []),
+            }
+
+            # 解析发布日期
+            publish_str = microformat.get("publishDate", "")
+            if publish_str:
+                try:
+                    result["published_at"] = datetime.fromisoformat(publish_str.replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    pass
+
+            return result
+
+        except (json.JSONDecodeError, AttributeError) as e:
+            logger.debug(f"[YouTube] 页面解析失败: {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"[YouTube] 页面爬取失败: {e}")
+            return None
+
+
+# =============================================================================
 # 抖音爬虫 (使用公开的分享页解析)
 # =============================================================================
 
@@ -223,8 +467,12 @@ class DouyinCrawler:
             return m.group(1)
         return None
 
+    @with_retry(max_retries=2, base_delay=1.5)
     async def fetch(self, url: str) -> VideoInfo | None:
         """获取抖音视频信息"""
+        limiter = _rate_limiters["douyin"]
+        await limiter.wait()
+
         try:
             import httpx
             async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
@@ -320,8 +568,12 @@ class DouyinCrawler:
 class KuaishouCrawler:
     """快手视频信息爬虫"""
 
+    @with_retry(max_retries=2, base_delay=1.5)
     async def fetch(self, url: str) -> VideoInfo | None:
         """获取快手视频信息"""
+        limiter = _rate_limiters["kuaishou"]
+        await limiter.wait()
+
         try:
             import httpx
             async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
@@ -369,24 +621,159 @@ class KuaishouCrawler:
 
 
 # =============================================================================
+# 微博视频爬虫
+# =============================================================================
+
+class WeiboVideoCrawler:
+    """微博视频信息爬虫 — 解析微博视频页面"""
+
+    @staticmethod
+    def extract_video_id(url: str) -> str | None:
+        """从微博视频URL提取标识"""
+        # https://weibo.com/tv/show/1034:xxxxx
+        # https://video.weibo.com/show?fid=1034:xxxxx
+        patterns = [
+            r'(?:show/|fid=)(1034:\d+)',
+            r'(?:tv/show|video/)(\d+:\w+)',
+            r'weibo\.com/(\d+)/(\w+)',  # 直接微博URL
+        ]
+        for p in patterns:
+            m = re.search(p, url)
+            if m:
+                return m.group(1)
+        return hashlib.md5(url.encode()).hexdigest()[:12]
+
+    @with_retry(max_retries=2, base_delay=1.0)
+    async def fetch(self, url: str) -> VideoInfo | None:
+        """获取微博视频信息"""
+        limiter = _rate_limiters["weibo_video"]
+        await limiter.wait()
+
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+                resp = await client.get(
+                    url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
+                        "Referer": "https://weibo.com/",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    }
+                )
+                html = resp.text
+
+                # 从页面 meta 标签提取
+                title = ""
+                m = re.search(r'<meta\s+property="og:title"\s+content="([^"]+)"', html)
+                if not m:
+                    m = re.search(r'<title>([^<]+)</title>', html)
+                if m:
+                    title = m.group(1).strip()
+
+                desc = ""
+                m = re.search(r'<meta\s+property="og:description"\s+content="([^"]+)"', html)
+                if not m:
+                    m = re.search(r'<meta\s+name="description"\s+content="([^"]+)"', html)
+                if m:
+                    desc = m.group(1).strip()
+
+                author = ""
+                m = re.search(r'"screen_name"\s*:\s*"([^"]+)"', html)
+                if not m:
+                    m = re.search(r'"nickname"\s*:\s*"([^"]+)"', html)
+                if not m:
+                    m = re.search(r'<span\s+class="name"[^>]*>([^<]+)</span>', html)
+                if m:
+                    author = m.group(1)
+
+                author_id = ""
+                m = re.search(r'"uid"\s*:\s*"(\d+)"', html) or re.search(r'"idstr"\s*:\s*"(\d+)"', html)
+                if m:
+                    author_id = m.group(1)
+
+                # 播放量
+                views = 0
+                m = re.search(r'(?:play_count|"play"\s*:\s*)"?(\d+)"?', html)
+                if m:
+                    views = int(m.group(1))
+
+                # 发布时间
+                published = None
+                m = re.search(r'"created_at"\s*:\s*"([^"]+)"', html)
+                if m:
+                    try:
+                        from datetime import timezone, timedelta
+                        # 微博时间格式: "Wed Jun 10 15:30:00 +0800 2026"
+                        published = datetime.strptime(m.group(1), "%a %b %d %H:%M:%S %z %Y")
+                    except (ValueError, TypeError):
+                        pass
+
+                # 视频时长
+                duration = 0
+                m = re.search(r'"duration"\s*:\s*(\d+)', html)
+                if m:
+                    duration = int(m.group(1))
+
+                video_id = self.extract_video_id(url)
+
+                info = VideoInfo(
+                    platform="weibo_video",
+                    video_id=video_id,
+                    url=url,
+                    title=title or "微博视频",
+                    description=desc or title or "",
+                    author_name=author or "",
+                    author_id=author_id or "",
+                    duration_seconds=duration,
+                    view_count=views,
+                    published_at=published,
+                    is_original=True,  # 无法确定
+                )
+
+                logger.info(f"[微博视频] 获取: {info.title[:40]}... (作者: {info.author_name})")
+                return info
+
+        except Exception as e:
+            logger.warning(f"[微博视频] 爬取失败: {e}")
+
+        return VideoInfo(
+            platform="weibo_video",
+            video_id=hashlib.md5(url.encode()).hexdigest()[:12],
+            url=url,
+            title="微博视频 (需进一步解析)",
+            description="该链接指向微博上的一个视频。详细信息需要平台的进一步访问。",
+        )
+
+
+# =============================================================================
 # 统一视频分析入口
 # =============================================================================
 
-async def analyze_video_url(url: str) -> dict | None:
+async def analyze_video_url(url: str, use_cache: bool = True) -> dict | None:
     """
-    统一视频分析: 识别平台 → 爬取 → 文本 → 10引擎分析
+    统一视频分析: 识别平台 → 去重检查 → 爬取 → 文本 → 10引擎分析
+
+    Args:
+        url: 视频URL
+        use_cache: 是否使用缓存（已分析过的相同内容跳过引擎分析）
 
     Returns: 包含 video_info + engine_analysis 的完整结果
     """
     platform = identify_video_platform(url)
     if not platform:
-        return {"error": "不支持的视频平台", "url": url, "supported_platforms": ["bilibili", "douyin", "kuaishou", "weibo_video", "youtube"]}
+        return {
+            "error": "不支持的视频平台",
+            "url": url,
+            "supported_platforms": ["bilibili", "douyin", "kuaishou", "weibo_video", "youtube"],
+        }
 
     # 选择爬虫
     crawlers = {
         "bilibili": BilibiliCrawler(),
         "douyin": DouyinCrawler(),
         "kuaishou": KuaishouCrawler(),
+        "youtube": YouTubeCrawler(),
+        "weibo_video": WeiboVideoCrawler(),
     }
     crawler = crawlers.get(platform)
     if not crawler:
@@ -397,9 +784,19 @@ async def analyze_video_url(url: str) -> dict | None:
     if not video_info:
         return {"error": "无法获取视频信息", "platform": platform, "url": url}
 
-    # Step 2: 将文字内容送入引擎分析
+    # Step 1.5: 内容去重检查
     text_content = video_info.to_text()
+    content_hash = compute_content_hash(text_content)
 
+    if use_cache and content_hash in _content_hash_cache:
+        logger.info(f"[缓存命中] {platform}/{video_info.video_id} 内容已分析过，使用缓存结果")
+        cached = _content_hash_cache[content_hash].copy()
+        cached["video_info"] = video_info.to_dict()
+        cached["cached"] = True
+        cached["cache_hit"] = True
+        return cached
+
+    # Step 2: 将文字内容送入引擎分析
     try:
         from app.engine.reasoning import run_reasoning_pipeline
         engine_result = await run_reasoning_pipeline(
@@ -410,11 +807,24 @@ async def analyze_video_url(url: str) -> dict | None:
             platform=platform,
         )
 
-        return {
+        result = {
             "video_info": video_info.to_dict(),
-            "engine_analysis": engine_result.to_dict(),
+            "engine_analysis": engine_result.to_dict() if engine_result else None,
             "platform": platform,
+            "content_hash": content_hash,
+            "cached": False,
         }
+
+        # 缓存分析结果
+        if len(_content_hash_cache) > 500:
+            # 简单的 LRU: 删除最旧的50个条目
+            keys = list(_content_hash_cache.keys())[:50]
+            for k in keys:
+                del _content_hash_cache[k]
+        _content_hash_cache[content_hash] = result
+
+        return result
+
     except Exception as e:
         logger.error(f"视频分析引擎失败: {e}")
         return {
@@ -422,7 +832,23 @@ async def analyze_video_url(url: str) -> dict | None:
             "engine_analysis": None,
             "platform": platform,
             "engine_error": str(e),
+            "content_hash": content_hash,
+            "cached": False,
         }
+
+
+def clear_cache():
+    """清空内容哈希缓存（用于调试或内存管理）"""
+    _content_hash_cache.clear()
+    logger.info(f"[缓存] 已清空内容哈希缓存")
+
+
+def cache_stats() -> dict:
+    """返回缓存统计信息"""
+    return {
+        "cached_entries": len(_content_hash_cache),
+        "max_entries": 500,
+    }
 
 
 # =============================================================================

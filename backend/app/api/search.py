@@ -94,7 +94,7 @@ async def search_events(
     - newest: 按最后更新时间倒序
     - credibility: 按可信度评分倒序
     """
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     q = sanitize_query(q)
 
@@ -195,6 +195,27 @@ async def search_events(
     total_result = await db.execute(total_stmt)
     total = total_result.scalar() or 0
 
+    # --- 批量获取每个事件的前5个来源URL ---
+    event_ids = [e.id for e in unique_events]
+    source_map: dict = {}
+    if event_ids:
+        from app.models.event import Source
+        src_stmt = (
+            select(Source.event_id, Source.url, Source.platform, Source.author)
+            .where(Source.event_id.in_(event_ids))
+            .order_by(Source.fetched_at.desc())
+        )
+        src_result = await db.execute(src_stmt)
+        for row in src_result.all():
+            eid_str = str(row[0])
+            if eid_str not in source_map:
+                source_map[eid_str] = {"count": 0, "urls": []}
+            source_map[eid_str]["count"] += 1
+            if len(source_map[eid_str]["urls"]) < 5:
+                source_map[eid_str]["urls"].append({
+                    "url": row[1], "platform": row[2].value if row[2] else "unknown", "author": row[3],
+                })
+
     return {
         "query": q,
         "total": total,
@@ -215,6 +236,8 @@ async def search_events(
                 "engine_verdict": e.engine_analysis.get("verdict") if e.engine_analysis else None,
                 "engine_distortion_count": len(e.engine_analysis.get("distortion_analysis", {}).get("matches", [])) if e.engine_analysis else 0,
                 "engine_fallacy_count": e.engine_analysis.get("fallacy_analysis", {}).get("fallacy_count", 0) if e.engine_analysis else 0,
+                "source_count": source_map.get(str(e.id), {}).get("count", 0),
+                "source_urls": source_map.get(str(e.id), {}).get("urls", []),
             }
             for e in unique_events
         ],
@@ -233,9 +256,9 @@ async def trending_events(
     基于最近 N 小时内信息来源数量和可信度综合排序。
     热度 = source_count * 0.6 + credibility_score * 0.4
     """
-    from datetime import datetime, timedelta
+    from datetime import datetime, timezone, timedelta
 
-    since = datetime.utcnow() - timedelta(hours=hours)
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
 
     # 统计每个事件的来源数量并按热度排序
     subq = (
@@ -292,6 +315,9 @@ async def search_by_url(
     查找包含指定 URL 的事件和来源。
     使用 URL 规范化匹配（忽略 http/https、www 差异）。
     """
+    from app.security import validate_url_safe
+    if not validate_url_safe(url):
+        raise HTTPException(400, "URL 不安全或不允许")
     from urllib.parse import urlparse
 
     def normalize_url(u: str) -> str:
