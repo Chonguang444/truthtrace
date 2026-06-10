@@ -78,6 +78,7 @@ class PropagationGraphBuilder:
         seed_author: str = "",
         entities: dict | None = None,
         deep: bool = False,
+        references: list[str] | None = None,
     ) -> PropagationGraph:
         """
         从种子构建传播图
@@ -88,6 +89,7 @@ class PropagationGraphBuilder:
             seed_author: 种子页面作者
             entities: NLP 提取的实体
             deep: 是否深度追溯（爬取更多引用链）
+            references: 深度采集提取的引用链接列表
 
         Returns:
             PropagationGraph
@@ -107,42 +109,107 @@ class PropagationGraphBuilder:
         )
         graph.add_node(seed_node)
 
-        # Step 1: 通过搜索引擎查找引用
-        ref_nodes = await self._find_references(seed_url, seed_content, entities)
-        for node in ref_nodes:
-            graph.add_node(node)
-            # 创建引用边
-            graph.add_edge(GraphEdge(
-                source_id=seed_id,
-                target_id=node.id,
-                edge_type="reference" if deep else "quote",
-                weight=0.5,
-                propagated_at=node.published_at,
-            ))
+        # Step 1: 深度采集的引用链接 — 实际爬取每个引用页面的正文
+        if references:
+            ref_nodes = await self._crawl_reference_pages(references[:10])
+            for node in ref_nodes:
+                graph.add_node(node)
+                graph.add_edge(GraphEdge(
+                    source_id=seed_id,
+                    target_id=node.id,
+                    edge_type="reference",
+                    weight=0.8,
+                    propagated_at=node.published_at,
+                ))
 
-        # Step 2: 如果深度追溯，对引用节点再次搜索
-        if deep and ref_nodes:
-            for ref_node in ref_nodes[:5]:  # 限制深度
+        # Step 2: 通过搜索引擎查找引用
+        search_nodes = await self._find_references(seed_url, seed_content, entities)
+        for node in search_nodes:
+            if not any(n.id == node.id for n in graph.nodes):
+                graph.add_node(node)
+                graph.add_edge(GraphEdge(
+                    source_id=seed_id,
+                    target_id=node.id,
+                    edge_type="quote",
+                    weight=0.5,
+                    propagated_at=node.published_at,
+                ))
+
+        # Step 3: 如果深度追溯，深入爬取搜索结果的页面
+        if deep and search_nodes:
+            to_crawl = [n.url for n in (references[:5] if references else []) +
+                       [n.url for n in search_nodes[:5]]]
+            for ref_node in search_nodes[:3]:
                 sub_refs = await self._find_references(
                     ref_node.url, "", entities
                 )
                 for sub_node in sub_refs:
-                    graph.add_node(sub_node)
-                    graph.add_edge(GraphEdge(
-                        source_id=ref_node.id,
-                        target_id=sub_node.id,
-                        edge_type="reference",
-                        weight=0.3,
-                        propagated_at=sub_node.published_at,
-                    ))
+                    if not any(n.id == sub_node.id for n in graph.nodes):
+                        graph.add_node(sub_node)
+                        graph.add_edge(GraphEdge(
+                            source_id=ref_node.id,
+                            target_id=sub_node.id,
+                            edge_type="reference",
+                            weight=0.3,
+                            propagated_at=sub_node.published_at,
+                        ))
 
-        # Step 3: 节点间关系推断（基于内容相似度）
+        # Step 4: 节点间关系推断（基于内容相似度）
         self._infer_edges_by_similarity(graph)
 
         logger.info(
             f"传播图构建完成: {len(graph.nodes)} 节点, {len(graph.edges)} 边"
         )
         return graph
+
+    async def _crawl_reference_pages(self, urls: list[str]) -> list[GraphNode]:
+        """实际爬取引用页面的正文内容，而不仅仅是标题"""
+        import httpx
+        from bs4 import BeautifulSoup
+
+        nodes: list[GraphNode] = []
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            for ref_url in urls[:8]:
+                try:
+                    resp = await client.get(ref_url, headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                    })
+                    if resp.status_code >= 400:
+                        continue
+
+                    soup = BeautifulSoup(resp.text[:50000], "lxml")
+                    title = ""
+                    t = soup.select_one("title") or soup.select_one("h1") or soup.select_one("meta[property='og:title']")
+                    if t:
+                        title = (t.get("content") or t.get_text()).strip()[:200]
+
+                    # 提取正文摘要
+                    content_text = ""
+                    for sel in ["article", "main", '[role="main"]', ".content", ".post-content"]:
+                        el = soup.select_one(sel)
+                        if el:
+                            content_text = el.get_text(separator=" ", strip=True)[:2000]
+                            break
+                    if not content_text:
+                        body = soup.find("body")
+                        if body:
+                            content_text = body.get_text(separator=" ", strip=True)[:500]
+
+                    node_id = self._node_id_from_url(ref_url)
+                    nodes.append(GraphNode(
+                        id=node_id,
+                        url=ref_url,
+                        platform=self._detect_platform(ref_url),
+                        title=title,
+                        content_hash=self._get_fingerprinter().compute(content_text) if content_text else "",
+                        published_at=datetime.now(timezone.utc),
+                    ))
+                    logger.debug(f"[爬取引用] {ref_url[:50]}: {title[:40]}")
+
+                except Exception as e:
+                    logger.debug(f"[爬取引用失败] {ref_url[:50]}: {e}")
+
+        return nodes
 
     async def _find_references(
         self,

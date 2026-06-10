@@ -134,12 +134,33 @@ async def _run_trace_pipeline(
     url_chain = await resolver.resolve(url)
     final_url = url_chain[-1][0] if url_chain else url
 
-    # Step 2: 爬取目标页面
+    # Step 2: 爬取目标页面 (基础爬虫)
     progress(f"爬取目标页面: {final_url[:50]}...")
     crawler = GeneralCrawler()
     page_data = await crawler.fetch(final_url)
 
-    if not page_data or not page_data.content:
+    # Step 2.5: 深度全文采集 — 提取正文+事实宣称+统计数据+引用链接
+    deep_result = None
+    deep_content_text = ""
+    try:
+        from app.analyzer.deep_content import get_deep_orchestrator
+        progress("深度全文采集: 提取正文+引用链接+多源交叉验证...")
+        deep_orch = get_deep_orchestrator()
+        deep_result = await deep_orch.analyze(final_url, title_hint=title or "", deep=deep_trace)
+        if deep_result and deep_result.seed_page and deep_result.seed_page.full_text:
+            deep_content_text = deep_result.seed_page.full_text
+            progress(f"深度采集完成: {deep_result.seed_page.text_length} chars 正文, "
+                     f"{len(deep_result.seed_page.claims)} 条事实宣称, "
+                     f"{len(deep_result.referenced_pages)} 篇引用源深入分析, "
+                     f"多源一致性 {deep_result.consistency_score:.0f}%")
+        else:
+            progress("深度采集回退: 使用基础爬虫内容")
+    except Exception as e:
+        logger.warning(f"深度采集失败 (回退到基础爬虫): {e}")
+
+    # 合并深度采集内容作为文本来源
+    combined_text = deep_content_text or (page_data.content if page_data else "")
+    if not combined_text:
         return {
             "status": "error",
             "url": url,
@@ -151,29 +172,32 @@ async def _run_trace_pipeline(
     progress("NLP 事件提取...")
     extractor = EventExtractor()
     event_info = await extractor.extract(
-        page_data.content or "",
-        title=title or page_data.title,
+        combined_text,
+        title=title or (page_data.title if page_data else "") or (deep_result.seed_page.title if deep_result and deep_result.seed_page else ""),
     )
 
     # Step 4: 实体识别
     progress("实体识别...")
     entity_recognizer = EntityRecognizer()
-    entities = await entity_recognizer.extract(page_data.content or "")
+    entities = await entity_recognizer.extract(combined_text)
 
     # Step 5: 内容指纹
     progress("内容指纹计算...")
     fingerprinter = ContentFingerprinter()
-    content_hash = fingerprinter.compute(page_data.content or "")
+    content_hash = fingerprinter.compute(combined_text)
 
-    # Step 6: 搜索相关引用
+    # Step 6: 传播图构建 — 使用深度采集的引用链接进行实际爬取
     progress("搜索相关引用和传播链...")
     graph_builder = PropagationGraphBuilder()
+    # 传入深度采集结果中的引用链接，构建更完整的传播图
+    ref_links = deep_result.seed_page.references if deep_result and deep_result.seed_page else []
     graph = await graph_builder.build(
         seed_url=final_url,
-        seed_content=page_data.content or "",
-        seed_author=page_data.author,
+        seed_content=combined_text,
+        seed_author=page_data.author if page_data else "",
         entities=entities,
         deep=deep_trace,
+        references=ref_links,  # 注入深度采集的引用链接
     )
 
     # Step 7: 识别原始来源
@@ -202,13 +226,21 @@ async def _run_trace_pipeline(
         progress("生成辟谣报告...")
         rumor_result = await _generate_rumor_report(event_id)
 
-    # Step 10: 推理引擎 — 深度分析
+    # Step 10: 推理引擎 — 深度分析（使用深度采集全文代替基础摘要）
     progress("推理引擎分析中...")
     url_chain_urls = [u for u, _ in url_chain] if url_chain else []
+    # 构造深度分析文本: 种子全文 + 所有引用源全文摘要
+    engine_text = combined_text  # 已是深度采集全文
+    if deep_result and deep_result.referenced_pages:
+        ref_texts = "\n\n--- 引用源内容 ---\n\n".join(
+            f"[来源 {i+1}: {rp.title or rp.url[:60]}]\n{rp.full_text[:3000]}"
+            for i, rp in enumerate(deep_result.referenced_pages[:5])
+        )
+        engine_text = f"{combined_text}\n\n=== 引用源交叉验证 ===\n{ref_texts}"
     engine_analysis = await _run_reasoning_analysis(
         url=url,
         title=event_info.get("title", title or ""),
-        text=f"{event_info.get('title', '')}\n{event_info.get('summary', '')}\n{page_data.content or ''}",
+        text=engine_text,
         content_hash=content_hash,
         url_chain=url_chain_urls,
         author=page_data.author or "",
@@ -241,11 +273,23 @@ async def _run_trace_pipeline(
         "summary": event_info.get("summary", ""),
         "entities": entities,
         "content_hash": content_hash,
+        "text_length": len(combined_text),
         "sources_found": len(graph.nodes),
         "original_sources": [
             {"url": s.url, "author": s.author, "score": s.score}
             for s in originals
         ],
+        # 深度采集结果
+        "deep_analysis": {
+            "depth_reached": deep_result.depth_reached if deep_result else 1,
+            "total_pages_analyzed": deep_result.total_pages_analyzed if deep_result else 1,
+            "total_content_chars": deep_result.total_content_chars if deep_result else 0,
+            "claims_extracted": len(deep_result.seed_page.claims) if deep_result and deep_result.seed_page else 0,
+            "statistics_extracted": len(deep_result.seed_page.statistics) if deep_result and deep_result.seed_page else 0,
+            "references_followed": len(deep_result.referenced_pages) if deep_result else 0,
+            "cross_reference": deep_result.cross_reference if deep_result else {},
+            "consistency_score": deep_result.consistency_score if deep_result else 50.0,
+        } if deep_result else None,
         "propagation_graph": {
             "nodes": len(graph.nodes),
             "edges": len(graph.edges),
