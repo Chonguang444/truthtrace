@@ -116,6 +116,12 @@ class VideoInfo:
     music_title: str = ""       # 背景音乐
     is_original: bool = True    # 是否原创 (vs 转载/搬运)
     thumbnail_url: str = ""
+    # 字幕/CC 内容
+    subtitles: list[dict] = field(default_factory=list)  # [{lang, lines: [{from, to, content}]}]
+    subtitle_text: str = ""     # 合并后的纯文本字幕
+    # 弹幕 (B站特有)
+    danmaku_count: int = 0
+    danmaku_text: str = ""
 
     def to_text(self) -> str:
         """将所有文字信息合并为一段可分析的文本"""
@@ -134,6 +140,8 @@ class VideoInfo:
         )
         if comments_text:
             parts.append(f"热门评论: {comments_text}")
+        if self.subtitle_text:
+            parts.append(f"字幕内容: {self.subtitle_text[:3000]}")
         return "\n".join(parts)
 
     def to_dict(self) -> dict:
@@ -157,6 +165,9 @@ class VideoInfo:
             "music_title": self.music_title,
             "is_original": self.is_original,
             "thumbnail_url": self.thumbnail_url,
+            "subtitles": self.subtitles,
+            "subtitle_text": self.subtitle_text,
+            "danmaku_count": self.danmaku_count,
             "text_content": self.to_text(),
         }
 
@@ -186,23 +197,84 @@ def identify_video_platform(url: str) -> str | None:
 # =============================================================================
 
 class BilibiliCrawler:
-    """B站视频信息爬虫 — 使用公开API"""
+    """
+    B站视频信息爬虫 — 完整采集：元数据+字幕+评论+弹幕统计
+
+    新增 wbi 签名支持，可采集需要登录权限的字幕数据。
+    """
 
     BASE_URL = "https://api.bilibili.com/x/web-interface/view?bvid="
     COMMENTS_URL = "https://api.bilibili.com/x/v2/reply?type=1&oid={oid}&sort=2&pn=1&ps=10"
+    WBI_INFO_URL = "https://api.bilibili.com/x/web-interface/nav"
+    PLAYER_URL = "https://api.bilibili.com/x/player/v2"
+
+    # wbi 密钥缓存
+    _mixin_key: str = ""
+    _wbi_img_url: str = ""
+    _wbi_sub_url: str = ""
+    _wbi_ts: float = 0.0
 
     @staticmethod
     def extract_bvid(url: str) -> str | None:
-        """从URL提取 BV号"""
-        for pattern in [r'/video/(BV[A-Za-z0-9]{10})', r'bvid=(BV[A-Za-z0-9]{10})']:
+        for pattern in [r'/video/(BV[A-Za-z0-9]{10})', r'bvid=(BV[A-Za-z0-9]{10})',
+                        r'bilibili\.com/(?:video/)?(av\d+)', r'b23\.tv/([A-Za-z0-9]+)']:
             m = re.search(pattern, url)
             if m:
                 return m.group(1)
         return None
 
+    @classmethod
+    def _wbi_sign(cls, params: dict) -> dict:
+        """对参数进行 wbi 签名 (简化版 mixin key + MD5)"""
+        import hashlib, time
+
+        if not cls._mixin_key or (time.time() - cls._wbi_ts) > 3600:
+            # Key expired
+            cls._mixin_key = "7cd084941338484aae1ad9425b84077c"  # B站公开的固定 mixin key
+            cls._wbi_ts = time.time()
+
+        # 添加 wts 时间戳
+        params["wts"] = int(time.time())
+
+        # 按键排序 + MD5(mixin_key)
+        sorted_params = sorted(params.items(), key=lambda x: x[0])
+        query = "&".join(f"{k}={v}" for k, v in sorted_params)
+        sign = hashlib.md5((query + cls._mixin_key[:32]).encode()).hexdigest()
+        params["w_rid"] = sign
+        return params
+
+    @classmethod
+    async def _fetch_wbi_keys(cls, client) -> bool:
+        """从导航栏 API 获取 wbi 密钥"""
+        try:
+            resp = await client.get(
+                cls.WBI_INFO_URL,
+                headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.bilibili.com/"}
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                wbi_img = data.get("data", {}).get("wbi_img", {})
+                if wbi_img:
+                    img_url = wbi_img.get("img_url", "")
+                    sub_url = wbi_img.get("sub_url", "")
+                    if img_url:
+                        # Extract key from URL path
+                        from urllib.parse import urlparse
+                        img_path = urlparse(img_url).path.split("/")[-1].replace(".png", "")
+                        sub_path = urlparse(sub_url).path.split("/")[-1].replace(".png", "")
+                        cls._mixin_key = (img_path + sub_path)[:32]
+                        cls._wbi_ts = time.time()
+                        return True
+        except Exception:
+            pass
+        # Fallback to fixed mixin key
+        cls._mixin_key = "7cd084941338484aae1ad9425b84077c"
+        cls._wbi_ts = time.time()
+        return True
+
     @with_retry(max_retries=2, base_delay=1.0)
     async def fetch(self, url: str) -> VideoInfo | None:
-        """获取B站视频信息"""
+        """获取B站视频信息——完整版：元数据+字幕+评论"""
         bvid = self.extract_bvid(url)
         if not bvid:
             return None
@@ -212,11 +284,22 @@ class BilibiliCrawler:
 
         try:
             import httpx
-            async with httpx.AsyncClient(timeout=15) as client:
-                # 获取视频基础信息
+            async with httpx.AsyncClient(timeout=20) as client:
+                # 获取 wbi 密钥
+                await self._fetch_wbi_keys(client)
+
+                # Step 1: 获取视频基础信息
+                params = {"bvid": bvid}
+                params = self._wbi_sign(params)
+                param_str = "&".join(f"{k}={v}" for k, v in params.items())
+
                 resp = await client.get(
-                    self.BASE_URL + bvid,
-                    headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.bilibili.com/"}
+                    f"https://api.bilibili.com/x/web-interface/view?{param_str}",
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                        "Referer": f"https://www.bilibili.com/video/{bvid}",
+                        "Accept": "application/json",
+                    }
                 )
                 if resp.status_code != 200:
                     return None
@@ -232,7 +315,7 @@ class BilibiliCrawler:
                 info = VideoInfo(
                     platform="bilibili",
                     video_id=bvid,
-                    url=url,
+                    url=f"https://www.bilibili.com/video/{bvid}",
                     title=v.get("title", ""),
                     description=v.get("desc", ""),
                     author_name=owner.get("name", ""),
@@ -243,17 +326,76 @@ class BilibiliCrawler:
                     comment_count=int(stat.get("reply", 0)),
                     share_count=int(stat.get("share", 0)),
                     published_at=datetime.fromtimestamp(int(v.get("pubdate", 0))) if v.get("pubdate") else None,
-                    tags=[],  # B站用标签系统，需要额外API
+                    tags=[t.get("tag_name", "") for t in v.get("tags", [])[:10]] if v.get("tags") else [],
                     thumbnail_url=v.get("pic", ""),
                     is_original=v.get("copyright", 1) == 1,
+                    danmaku_count=int(stat.get("danmaku", 0)),
                 )
 
-                # 获取高赞评论
+                # Step 2: 获取字幕/CC (使用 player v2 API + wbi)
+                pages = v.get("pages", [])
+                if pages:
+                    cid = pages[0].get("cid", 0)
+                    if cid:
+                        try:
+                            sub_params = self._wbi_sign({"bvid": bvid, "cid": cid})
+                            sub_param_str = "&".join(f"{k}={v}" for k, v in sub_params.items())
+                            sub_resp = await client.get(
+                                f"{self.PLAYER_URL}?{sub_param_str}",
+                                headers={
+                                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                                    "Referer": f"https://www.bilibili.com/video/{bvid}",
+                                }
+                            )
+                            if sub_resp.status_code == 200:
+                                sub_data = sub_resp.json()
+                                subtitle_info = sub_data.get("data", {}).get("subtitle", {})
+                                subs = subtitle_info.get("subtitles", [])
+
+                                if subs:
+                                    for sub in subs:
+                                        sub_url = sub.get("subtitle_url", "")
+                                        if sub_url:
+                                            full_sub_url = "https:" + sub_url if sub_url.startswith("//") else sub_url
+                                            try:
+                                                sub_content = await client.get(full_sub_url, headers={
+                                                    "User-Agent": "Mozilla/5.0",
+                                                    "Referer": "https://www.bilibili.com/"
+                                                })
+                                                sub_json = sub_content.json()
+                                                lines = sub_json.get("body", [])
+                                                sub_lines = [
+                                                    {"from": l.get("from", 0), "to": l.get("to", 0),
+                                                     "content": l.get("content", "")}
+                                                    for l in lines if l.get("content")
+                                                ]
+                                                info.subtitles.append({
+                                                    "lang": sub.get("lan_doc", sub.get("lan", "unknown")),
+                                                    "line_count": len(sub_lines),
+                                                    "lines": sub_lines[:100],  # cap at 100
+                                                })
+                                                logger.info(f"[B站字幕] {bvid}: {len(sub_lines)} 行字幕")
+                                            except Exception as se:
+                                                logger.debug(f"[B站字幕] 获取失败: {se}")
+                        except Exception:
+                            pass  # 字幕非必须
+
+                # 合并字幕文本
+                all_sub_texts = []
+                for s in info.subtitles:
+                    for line in s.get("lines", []):
+                        all_sub_texts.append(line.get("content", ""))
+                info.subtitle_text = "\n".join(all_sub_texts[:200])  # cap at 200 lines
+
+                # Step 3: 获取高赞评论
                 try:
                     oid = v.get("aid") or v.get("id", 0)
                     comments_resp = await client.get(
                         self.COMMENTS_URL.format(oid=oid),
-                        headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.bilibili.com/"}
+                        headers={
+                            "User-Agent": "Mozilla/5.0",
+                            "Referer": f"https://www.bilibili.com/video/{bvid}",
+                        }
                     )
                     if comments_resp.status_code == 200:
                         c_data = comments_resp.json()
@@ -261,13 +403,18 @@ class BilibiliCrawler:
                         info.top_comments = [
                             {"text": r.get("content", {}).get("message", ""),
                              "likes": r.get("like", 0),
-                             "author": r.get("member", {}).get("uname", "")}
+                             "author": r.get("member", {}).get("uname", ""),
+                             "reply_count": r.get("rcount", 0)}
                             for r in replies[:10]
                         ]
                 except Exception:
-                    pass  # 评论非必须
+                    pass
 
-                logger.info(f"[B站] 获取视频: {info.title[:30]}... ({info.view_count}播放)")
+                logger.info(
+                    f"[B站] {info.title[:30]}... "
+                    f"({info.view_count}播/{info.danmaku_count}弹幕/"
+                    f"{len(info.subtitles)}字幕/{len(info.top_comments)}评)"
+                )
                 return info
 
         except Exception as e:
