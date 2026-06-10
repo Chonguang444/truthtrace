@@ -124,10 +124,17 @@ class VideoInfo:
     danmaku_text: str = ""
 
     def to_text(self) -> str:
-        """将所有文字信息合并为一段可分析的文本"""
+        """将所有文字信息合并为一段可分析的文本。
+
+        视频语音内容（字幕/转录）是分析的核心，占主导位置；
+        标题、描述、标签和评论作为补充元数据。
+        """
         parts = []
         if self.title:
             parts.append(f"标题: {self.title}")
+        # === 视频语音内容占据主导（分析的核心输入） ===
+        if self.subtitle_text:
+            parts.append(f"视频语音内容:\n{self.subtitle_text[:8000]}")
         if self.description:
             parts.append(f"描述: {self.description}")
         if self.tags:
@@ -140,8 +147,6 @@ class VideoInfo:
         )
         if comments_text:
             parts.append(f"热门评论: {comments_text}")
-        if self.subtitle_text:
-            parts.append(f"字幕内容: {self.subtitle_text[:3000]}")
         return "\n".join(parts)
 
     def to_dict(self) -> dict:
@@ -931,6 +936,56 @@ async def analyze_video_url(url: str, use_cache: bool = True) -> dict | None:
     if not video_info:
         return {"error": "无法获取视频信息", "platform": platform, "url": url}
 
+    # Step 1.25: 音频转录 — 视频分析的强制第一步
+    # 如果平台爬虫未能获取字幕/CC，必须通过音频转录获取视频的实际语音内容。
+    # 依赖缺失或转录失败 = 拒绝分析（不给基于元数据的"盲目"结论）。
+    transcript_result = None
+    if not video_info.subtitle_text:
+        try:
+            from app.crawler.video_transcriber import get_transcriber, check_dependencies
+            deps = check_dependencies()
+            if deps.get("ready"):
+                transcriber = get_transcriber()
+                transcript_result = await transcriber.transcribe_video(
+                    url, title_hint=video_info.title
+                )
+                if transcript_result and transcript_result.full_text:
+                    video_info.subtitle_text = transcript_result.full_text
+                    logger.info(
+                        f"[转录] {platform}/{video_info.video_id}: "
+                        f"{transcript_result.word_count} 字, "
+                        f"{transcript_result.segment_count} 段, "
+                        f"方法={transcript_result.method}"
+                    )
+                elif transcript_result and transcript_result.error:
+                    logger.warning(
+                        f"[转录] {platform}/{video_info.video_id} 失败: "
+                        f"{transcript_result.error[:120]}"
+                    )
+            else:
+                missing_info = deps.get("missing", [])
+                missing_names = [m["dep"] for m in missing_info]
+                logger.warning(
+                    f"[转录] {platform}/{video_info.video_id} 依赖缺失: {missing_names}"
+                )
+        except Exception as e:
+            logger.error(f"[转录] {platform}/{video_info.video_id} 异常: {e}")
+
+    # Step 1.5: 强制内容检查 — 字幕和转录都没有 → 拒绝分析
+    if not video_info.subtitle_text:
+        return {
+            "error": "无法获取视频语音内容，无法进行分析",
+            "detail": (
+                "该视频无可用字幕（CC），且音频转录失败或服务端依赖缺失。"
+                "请确保已安装 ffmpeg、faster-whisper 和 yt-dlp。"
+                "可通过 GET /api/system/tools/status 检查依赖状态。"
+            ),
+            "platform": platform,
+            "url": url,
+            "video_title": video_info.title,
+            "transcript_error": transcript_result.error if transcript_result else None,
+        }
+
     # Step 1.5: 内容去重检查
     text_content = video_info.to_text()
     content_hash = compute_content_hash(text_content)
@@ -960,6 +1015,7 @@ async def analyze_video_url(url: str, use_cache: bool = True) -> dict | None:
             "platform": platform,
             "content_hash": content_hash,
             "cached": False,
+            "transcript": transcript_result.to_dict() if transcript_result else None,
         }
 
         # 缓存分析结果
@@ -981,6 +1037,7 @@ async def analyze_video_url(url: str, use_cache: bool = True) -> dict | None:
             "engine_error": str(e),
             "content_hash": content_hash,
             "cached": False,
+            "transcript": transcript_result.to_dict() if transcript_result else None,
         }
 
 

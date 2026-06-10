@@ -29,11 +29,11 @@ from urllib.parse import urljoin
 logger = logging.getLogger("truthtrace.video_transcriber")
 
 TRANSCRIBE_CONFIG = {
-    "whisper_model": "medium",
-    "whisper_device": "cpu",
-    "whisper_compute_type": "int8",
-    "language": "zh",
-    "max_audio_duration": 300,
+    "whisper_model": os.environ.get("WHISPER_MODEL", "medium"),
+    "whisper_device": os.environ.get("WHISPER_DEVICE", "cpu"),
+    "whisper_compute_type": os.environ.get("WHISPER_COMPUTE_TYPE", "int8"),
+    "language": os.environ.get("TRANSCRIBE_LANGUAGE", "zh"),
+    "max_audio_duration": int(os.environ.get("TRANSCRIBE_MAX_DURATION", "300")),
 }
 
 
@@ -50,8 +50,13 @@ class TranscriptResult:
             "url": self.url, "platform": self.platform, "video_title": self.video_title,
             "full_text": self.full_text, "segments": self.segments[:20],
             "language": self.language, "duration_seconds": round(self.duration_seconds, 1),
-            "word_count": self.word_count, "method": self.method, "error": self.error,
+            "word_count": self.word_count, "segment_count": self.segment_count,
+            "method": self.method, "error": self.error,
         }
+
+    @property
+    def segment_count(self) -> int:
+        return len(self.segments)
 
 
 # =============================================================================
@@ -71,12 +76,57 @@ def _get_ffmpeg_path() -> str | None:
     return None
 
 def check_dependencies() -> dict:
+    """检查视频音频转录所需的全部依赖。
+
+    返回结构:
+        {"ffmpeg": bool, "whisper": bool, "yt_dlp": bool,
+         "ready": bool, "ready_for_youtube": bool,
+         "missing": [{"dep": str, "install": str}, ...]}
+    """
+    ffmpeg_path = _get_ffmpeg_path()
     status = {
-        "ffmpeg": _get_ffmpeg_path() is not None,
+        "ffmpeg": ffmpeg_path is not None,
+        "ffmpeg_path": ffmpeg_path,
     }
-    try: from faster_whisper import WhisperModel; status["whisper"] = True
-    except ImportError: status["whisper"] = False
-    status["ready"] = all(status.values())
+
+    # faster-whisper (核心依赖)
+    try:
+        from faster_whisper import WhisperModel  # noqa: F401
+        status["whisper"] = True
+    except ImportError:
+        status["whisper"] = False
+
+    # yt-dlp (YouTube 备用 / 通用回退)
+    try:
+        subprocess.run(["yt-dlp", "--version"], capture_output=True, timeout=5, check=True)
+        status["yt_dlp"] = True
+    except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError):
+        status["yt_dlp"] = False
+
+    # 核心就绪 (B站直连仅需 ffmpeg + whisper)
+    status["ready"] = status["ffmpeg"] and status["whisper"]
+    # YouTube 就绪 (需要 yt-dlp 作为回退)
+    status["ready_for_youtube"] = status["ready"] and status["yt_dlp"]
+
+    # 可操作的安装指引
+    missing = []
+    if not status["ffmpeg"]:
+        missing.append({
+            "dep": "ffmpeg",
+            "install": "Ubuntu: sudo apt install ffmpeg | Mac: brew install ffmpeg | Win: choco install ffmpeg 或 pip install imageio-ffmpeg"
+        })
+    if not status["whisper"]:
+        missing.append({
+            "dep": "faster_whisper",
+            "install": "pip install faster-whisper"
+        })
+    if not status["yt_dlp"]:
+        missing.append({
+            "dep": "yt-dlp",
+            "install": "pip install yt-dlp"
+        })
+    status["missing"] = missing
+
     return status
 
 
@@ -193,9 +243,9 @@ async def _extract_youtube_audio(client, url: str) -> tuple[str | None, str, str
     except Exception:
         title = ""
 
-    # 直接下载音频流 (YouTube 需要cookie)
-    # 仅当有浏览器cookie时可行，否则回退到 yt-dlp
-    return None, title, "YouTube 需要浏览器 cookie 或 yt-dlp 兜底"
+    # 直接下载音频流 (YouTube 需要cookie/CORS签名)
+    # 返回空 error 让 transcribe_video 的 yt-dlp 回退接管
+    return None, title, ""
 
 
 # =============================================================================
@@ -332,7 +382,7 @@ class VideoTranscriber:
             result.language = lang or TRANSCRIBE_CONFIG["language"]
             result.duration_seconds = duration
             result.word_count = len(full_text); result.transcribe_ms = (time.time() - start) * 1000
-            logger.info(f"[转录] {result.word_count} 字, {result.segment_count if hasattr(result,'segment_count') else len(segments)} 段")
+            logger.info(f"[转录] {result.word_count} 字, {len(segments)} 段")
         except Exception as e:
             result.error = f"Whisper 转录失败: {str(e)[:200]}"
         finally:
@@ -381,11 +431,6 @@ class VideoTranscriber:
             return None, "", "未找到下载文件"
         except FileNotFoundError:
             return None, "", "yt-dlp 未安装"
-
-    @property
-    def segment_count(self):
-        return 0
-
 
 # 全局单例
 _transcriber: VideoTranscriber | None = None

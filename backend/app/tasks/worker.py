@@ -146,11 +146,11 @@ async def _run_trace_pipeline(
             if deps.get("ready"):
                 progress("下载视频音频 + Whisper 语音转文字中（约需 30-120 秒）...")
                 transcriber = get_transcriber()
-                transcript = await transcriber.transcribe_video(final_url, title_hint=title or "", max_duration=300)
+                transcript = await transcriber.transcribe_video(final_url, title_hint=title or "")
                 if transcript.full_text:
                     video_transcript = transcript.full_text
                     video_transcript_meta = transcript.to_dict()
-                    progress(f"视频转录完成: {transcript.word_count} 字, {transcript.segment_count} 语音段")
+                    progress(f"视频转录完成: {transcript.word_count} 字, {len(transcript.segments)} 语音段")
                     logger.info(f"[视频转录] {len(video_transcript)} chars from {final_url[:50]}")
                 elif transcript.error:
                     progress(f"视频转录跳过: {transcript.error[:100]}")

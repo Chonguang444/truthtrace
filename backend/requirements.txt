@@ -57,3 +57,9 @@ websockets==13.0
 pytest==8.3.3
 pytest-asyncio==0.24.0
 aiosqlite==0.20.0
+
+# 视频音频转录 (生产环境必需 — 用于提取视频口语内容)
+# 无这些依赖时视频分析将拒绝运行（不会降级为纯元数据"猜测"）
+# faster-whisper  # pip install faster-whisper — Whisper 语音转文字引擎
+# yt-dlp          # pip install yt-dlp — YouTube/通用视频音频下载回退
+# imageio-ffmpeg  # pip install imageio-ffmpeg — ffmpeg Python 绑定（系统级 ffmpeg 的备选）

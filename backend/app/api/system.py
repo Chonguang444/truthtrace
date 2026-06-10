@@ -379,8 +379,8 @@ async def seed_status_endpoint(db: AsyncSession = Depends(get_db)):
 async def tools_status():
     """检查视频转录等外部工具依赖状态"""
     try:
-        from app.crawler.video_transcriber import get_dependency_status
-        return get_dependency_status()
+        from app.crawler.video_transcriber import check_dependencies
+        return check_dependencies()
     except Exception as e:
         return {"ready": False, "error": str(e), "message": "安装: pip install yt-dlp faster-whisper"}
 
