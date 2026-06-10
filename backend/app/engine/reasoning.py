@@ -621,6 +621,67 @@ async def run_reasoning_pipeline(
     except Exception as e:
         logger.warning(f"发布者风险分析跳过: {e}")
 
+    # -----------------------------------------------------------------------
+    # Step 14: 传播路径深度风险分析 (新引擎)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.propagation_risk import PropagationRiskAnalyzer
+        prop_analyzer = PropagationRiskAnalyzer()
+        url_chain_nodes = [
+            {"id": u, "url": u, "platform": platform or "general", "published_at": (page_published_at.isoformat() if page_published_at else None)}
+            for u in (url_chain or [])
+        ] if url_chain else []
+        prop_metrics = prop_analyzer.analyze(
+            nodes=url_chain_nodes,
+            content_hashes=[content_hash] if content_hash else [],
+            original_hash=content_hash,
+            first_seen_at=page_published_at.isoformat() if page_published_at else None,
+            propagation_pattern=propagation_pattern,
+            bot_likelihood=float(bot_likelihood),
+        )
+        result.propagation_risk = prop_metrics.to_dict()
+        psi = prop_metrics.propagation_speed_index
+        add_step(
+            "传播路径深度风险分析 — 速度/变异/网络/异常检测",
+            f"传播风险: {prop_metrics.risk_level}({prop_metrics.overall_risk_score:.0f}/100)。PSI={psi}/h, {prop_metrics.total_nodes}节点, {prop_metrics.amplifier_count}个引爆节点, 变异系数{prop_metrics.mutation_variation:.2f}",
+            Confidence.HIGH if prop_metrics.overall_risk_score >= 40 else Confidence.MODERATE,
+            evidence=[Evidence(
+                description=f"传播速度指数: {psi}/h (正常<5)",
+                quote=f"节点{prop_metrics.total_nodes}, 边{prop_metrics.total_edges}, 深度{prop_metrics.max_depth}",
+                quality=EvidenceQuality.MEDIUM,
+            )],
+            uncertainty="传播路径分析依赖于可获取的公开数据。实际传播网络可能更复杂。",
+        )
+    except Exception as e:
+        logger.warning(f"传播路径分析跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 15: 实时谣言预警与求真卡生成 (新引擎)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.rumor_alert import alert_from_analysis
+        alert_result = alert_from_analysis(
+            engine_analysis=result.to_dict(),
+            propagation_metrics=result.propagation_risk,
+            ai_detection=result.ai_detection,
+            title=title or result.input_title,
+        )
+        result.rumor_alert = alert_result.to_dict()
+        if alert_result.alert_level.value in ("red", "orange"):
+            add_step(
+                "实时谣言预警 — 多级阈值触发 + 求真卡生成",
+                f"告警等级: {alert_result.alert_level.value.upper()}。{len(alert_result.triggers)}条规则触发。{len(alert_result.vulnerable_groups)}个易感群体: {', '.join(alert_result.vulnerable_groups)}",
+                Confidence.HIGH if alert_result.alert_level.value == "red" else Confidence.MODERATE,
+                evidence=[Evidence(
+                    description=t.description,
+                    quote=f"当前值 {t.value:.1f}, 阈值 {t.threshold}",
+                    quality=EvidenceQuality.HIGH if t.severity.value == "red" else EvidenceQuality.MEDIUM,
+                ) for t in alert_result.triggers[:5]],
+                uncertainty="自动预警基于可量化的风险指标。所有告警均需人工审核后才能采取处置措施。",
+            )
+    except Exception as e:
+        logger.warning(f"谣言预警跳过: {e}")
+
     try:
         from app.evolution.calibrator import get_calibrator
         get_calibrator().record_event(result.credibility_score, result.verdict.value, result.to_dict())

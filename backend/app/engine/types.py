@@ -218,6 +218,8 @@ class AnalysisResult:
     ai_detection: Optional[dict] = None
     rag_verification: Optional[dict] = None
     publisher_profile: Optional[dict] = None
+    propagation_risk: Optional[dict] = None
+    rumor_alert: Optional[dict] = None
     media_verification: Optional[dict] = None
     llm_analysis: Optional[dict] = None
 
@@ -252,6 +254,8 @@ class AnalysisResult:
             "ai_detection": self.ai_detection,
             "rag_verification": self.rag_verification,
             "publisher_profile": self.publisher_profile,
+            "propagation_risk": self.propagation_risk,
+            "rumor_alert": self.rumor_alert,
             "media_verification": self.media_verification,
             "llm_analysis": self.llm_analysis,
             "reasoning_chain": [s.to_dict() for s in self.reasoning_chain],
