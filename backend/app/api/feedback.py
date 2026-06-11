@@ -90,6 +90,12 @@ async def submit_feedback(
     if req.event_id not in _feedback_store:
         _feedback_store[req.event_id] = []
     _feedback_store[req.event_id].append(feedback)
+    # 上限: 每事件最多 1000 条反馈, 总共最多 50 个事件
+    if len(_feedback_store[req.event_id]) > 1000:
+        _feedback_store[req.event_id] = _feedback_store[req.event_id][-500:]
+    if len(_feedback_store) > 50:
+        oldest = sorted(_feedback_store.keys(), key=lambda k: len(_feedback_store[k]))[:10]
+        for k in oldest: del _feedback_store[k]
 
     # === 触发反馈闭环管道 (后台) ===
     try:
