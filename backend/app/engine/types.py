@@ -234,6 +234,10 @@ class AnalysisResult:
     cross_lang_trace: Optional[dict] = None       # 多语言溯源
     tech_fact_wedge: Optional[dict] = None        # 技术事实楔子
     cost_reasoning: Optional[dict] = None         # 成本逻辑推演
+    rumor_timeline: Optional[dict] = None         # 造谣过程演示
+    attention_metric: Optional[dict] = None       # 注意力效率评估
+    ifcn_review: Optional[dict] = None            # IFCN标准导出
+    debunk_script: Optional[dict] = None          # 辟谣视频脚本
 
     # 完整推理链
     reasoning_chain: list[ReasoningStep] = field(default_factory=list)
@@ -285,6 +289,10 @@ class AnalysisResult:
             "cross_lang_trace": self.cross_lang_trace,
             "tech_fact_wedge": self.tech_fact_wedge,
             "cost_reasoning": self.cost_reasoning,
+            "rumor_timeline": self.rumor_timeline,
+            "attention_metric": self.attention_metric,
+            "ifcn_review": self.ifcn_review,
+            "debunk_script": self.debunk_script,
             "is_debunking": self.is_debunking,
             "debunking_adjustment": self.debunking_adjustment,
             "reasoning_chain": [s.to_dict() for s in self.reasoning_chain],

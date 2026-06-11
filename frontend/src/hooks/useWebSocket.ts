@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 
-const WS_BASE = import.meta.env.VITE_WS_URL || "ws://localhost:8000";
+const WS_BASE = import.meta.env.VITE_WS_URL
+  || (import.meta.env.VITE_API_BASE_URL
+    ? import.meta.env.VITE_API_BASE_URL.replace(/^http/, "ws")
+    : (typeof window !== "undefined" && window.location.origin.replace(/^http/, "ws"))
+    || "ws://localhost:8000");
 
 interface WSMessage {
   type: string;

@@ -1000,6 +1000,25 @@ async def run_reasoning_pipeline(
     except Exception as e:
         logger.warning(f"Correction Agent 叙事替代跳过: {e}")
 
+    # 附加: 生成辟谣视频脚本
+    try:
+        from app.engine.debunk_script import generate_debunk_script
+        script = generate_debunk_script(
+            rumor_claim=(text or title)[:300],
+            verified_facts=result.correction_references if result.correction_references else [],
+            evidence_sources=[url] if url else [],
+            cost_reasoning={
+                "matched": result.cost_reasoning.get("matched", False) if result.cost_reasoning else False,
+                "logic": result.cost_reasoning.get("logic", "") if result.cost_reasoning else "",
+                "breakdown": result.cost_reasoning.get("breakdown", "") if result.cost_reasoning else "",
+            } if result.cost_reasoning else {},
+            tone="authoritative",
+            duration_sec=60,
+        )
+        result.debunk_script = script
+    except Exception:
+        pass
+
     # -----------------------------------------------------------------------
     # Step 21: Sift Critic Agent 对抗审查 (P1 — 在所有引擎之后)
     # -----------------------------------------------------------------------
@@ -1096,6 +1115,80 @@ async def run_reasoning_pipeline(
             )
     except Exception as e:
         logger.warning(f"技术事实楔子跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 26: 造谣过程演示时间线 (P3 — 从B站视频3/8获得的灵感)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.rumor_timeline import generate_rumor_timeline
+        timeline = generate_rumor_timeline(
+            rumor_text=(text or title)[:500],
+            detected_distortions=[
+                m.abuse_type if hasattr(m, 'abuse_type') else m.description[:30]
+                for m in (result.distortion_analysis.matches or [])[:5]
+            ] if result.distortion_analysis else [],
+            detected_fallacies=[
+                m.abuse_type if hasattr(m, 'abuse_type') else m.description[:30]
+                for m in (result.fallacy_analysis.matches or [])[:5]
+            ] if result.fallacy_analysis else [],
+        )
+        result.rumor_timeline = timeline.to_dict()
+        if timeline.steps:
+            add_step(
+                "造谣过程演示 — 展示信息如何被search→extract→distort→amplify",
+                f"还原{len(timeline.steps)}步造谣操作。关键教训: {timeline.reveals[0] if timeline.reveals else ''}",
+                Confidence.HIGH,
+                uncertainty="时间线基于模式匹配重建，具体细节可能因实际传播路径而异。",
+            )
+    except Exception as e:
+        logger.warning(f"造谣时间线跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 27: 注意力劫持评估 (P3 — 辟谣效果衡量)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.attention_metric import compute_attention_metric
+        attn = compute_attention_metric(
+            content_text=text,
+            content_title=title,
+        )
+        result.attention_metric = attn.to_dict()
+        if attn.risk_level in ("high", "medium"):
+            add_step(
+                "注意力效率评估 — 检测辟谣内容中的娱乐vs信息元素比",
+                attn.assessment,
+                Confidence.MODERATE,
+                evidence=[Evidence(
+                    description=f"注意力效率: {attn.attention_efficiency:.0%}",
+                    quote=f"信息密度: {attn.information_density:.1f} vs 娱乐密度: {attn.entertainment_density:.1f}",
+                    quality=EvidenceQuality.MEDIUM,
+                )],
+                uncertainty="注意力指标基于关键词密度计算，不能完全反映受众实际接收情况。",
+            )
+    except Exception as e:
+        logger.warning(f"注意力评估跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 28: IFCN 标准兼容导出 (P4 — 国际事实核查网络标准)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.ifcn_compliance import create_ifcn_compliant_review
+        ifcn_review = create_ifcn_compliant_review(
+            claim_text=(text or title)[:300],
+            truthtrace_verdict=result.verdict.value if hasattr(result.verdict, 'value') else str(result.verdict),
+            credibility_score=result.credibility_score,
+            review_summary=(result.correction or result.logical_summary or "")[:300],
+            claim_url=url,
+        )
+        result.ifcn_review = ifcn_review
+        add_step(
+            "IFCN 标准兼容 — 生成国际事实核查网络标准化报告",
+            f"IFCN评级: {ifcn_review['ifcn_rating']} | JSON-LD + Feed 格式就绪",
+            Confidence.HIGH,
+            uncertainty="IFCN兼容为自动化生成，人工审核后发布可提升合规等级。",
+        )
+    except Exception as e:
+        logger.warning(f"IFCN兼容跳过: {e}")
 
     try:
         from app.evolution.calibrator import get_calibrator

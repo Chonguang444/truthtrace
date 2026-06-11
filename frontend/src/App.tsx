@@ -127,11 +127,11 @@ function UserMenu() {
 
             <div className="p-1">
               <button
-                onClick={() => { setOpen(false); navigate("/profile"); }}
+                onClick={() => { setOpen(false); navigate("/admin"); }}
                 className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm hover:bg-accent transition-colors"
               >
                 <Settings className="h-4 w-4" />
-                个人中心
+                管理后台
               </button>
               <button
                 onClick={() => { setOpen(false); }}

@@ -86,6 +86,29 @@ export function Home() {
               <span className="flex items-center gap-1.5"><Globe className="h-4 w-4" /> {overview.total_sources || 0} 来源</span>
               <span className="flex items-center gap-1.5"><Shield className="h-4 w-4" /> {overview.total_rumor_reports || 0} 辟谣</span>
             </div>
+
+            {/* Example Queries — help new users understand what to search */}
+            <div className="mt-8 text-center">
+              <p className="text-xs text-muted-foreground mb-3">试试这些分析示例：</p>
+              <div className="flex flex-wrap gap-2 justify-center">
+                {[
+                  { label: "阿斯巴甜会致癌吗？", q: "阿斯巴甜" },
+                  { label: "疫苗导致自闭症？", q: "疫苗 自闭症" },
+                  { label: "自热米饭是塑料做的？", q: "自热米饭 塑料" },
+                  { label: "矿泉水瓶底数字代表有毒？", q: "矿泉水瓶 有毒" },
+                  { label: "转基因食品安全吗？", q: "转基因 安全" },
+                  { label: "5G基站辐射致癌？", q: "5G 辐射 致癌" },
+                ].map(ex => (
+                  <button
+                    key={ex.q}
+                    onClick={() => { setQuery(ex.q); setMode("keyword"); }}
+                    className="px-3 py-1.5 rounded-full text-xs border bg-background hover:bg-primary/5 hover:border-primary/30 transition-colors text-muted-foreground hover:text-foreground"
+                  >
+                    {ex.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </section>
