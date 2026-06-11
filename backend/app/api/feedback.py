@@ -20,6 +20,8 @@ router = APIRouter()
 
 # 内存存储 (实际应有数据库模型)
 _feedback_store: dict[str, list[dict]] = {}  # event_id → [feedbacks]
+_MAX_FEEDBACK_PER_KEY = 1000  # per-event cap
+_MAX_TOTAL_FEEDBACK_ENTRIES = 50000  # global cap
 _appeal_store: list[dict] = []  # 申诉列表
 
 

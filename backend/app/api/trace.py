@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.base import get_db
 from app.security import require_safe_url
+from app.auth.jwt import get_current_active_user
+from app.models.user import User
 
 logger = logging.getLogger("truthtrace.trace")
 router = APIRouter()
@@ -115,7 +117,7 @@ async def _run_trace_sync(request: TraceRequest, task_id: str):
 
 
 @router.post("/trace", response_model=TraceResponse)
-async def submit_trace_task(request: TraceRequest):
+async def submit_trace_task(request: TraceRequest, current_user: User = Depends(get_current_active_user)):
     """
     提交溯源追踪任务
 

@@ -116,9 +116,11 @@ EXTERNAL_REGISTRY = {
 # 内存存储 (生产用 PostgreSQL)
 # =============================================================================
 
-_bridge_entries: dict[str, dict] = {}  # entry_id → DetectZooEntry dict
-_import_log: list[dict] = []            # 导入记录
-_export_log: list[dict] = []            # 导出记录
+_bridge_entries: dict[str, dict] = {}  # entry_id → DetectZooEntry dict (max 10K)
+_import_log: list[dict] = []            # 导入记录 (max 5000)
+_export_log: list[dict] = []            # 导出记录 (max 5000)
+_BRIDGE_MAX_ENTRIES = 10000
+_LOG_MAX_ENTRIES = 5000
 
 
 # =============================================================================
@@ -158,7 +160,13 @@ async def export_to_detectzoo(
 
     entry_dict = entry.model_dump()
     _bridge_entries[entry_id] = entry_dict
+    # Cap entries
+    if len(_bridge_entries) > _BRIDGE_MAX_ENTRIES:
+        oldest = sorted(_bridge_entries.keys(), key=lambda k: _bridge_entries[k].get("created_at",""))[:1000]
+        for k in oldest: del _bridge_entries[k]
 
+    if len(_export_log) > _LOG_MAX_ENTRIES:
+        _export_log[:] = _export_log[-_LOG_MAX_ENTRIES//2:]
     _export_log.append({
         "entry_id": entry_id,
         "source_event": event_id,
@@ -227,6 +235,10 @@ async def import_from_detectzoo(
 
     entry_dict = entry.model_dump()
     _bridge_entries[entry_id] = entry_dict
+    # Cap bridge entries
+    if len(_bridge_entries) > _BRIDGE_MAX_ENTRIES:
+        oldest = sorted(_bridge_entries.keys(), key=lambda k: _bridge_entries[k].get("created_at",""))[:1000]
+        for k in oldest: del _bridge_entries[k]
 
     _import_log.append({
         "entry_id": entry_id,

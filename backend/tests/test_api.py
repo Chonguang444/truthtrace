@@ -62,10 +62,22 @@ async def test_search_by_url_not_found():
 @pytest.mark.asyncio
 async def test_trace_and_search_e2e():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # 注册测试用户并获取token
+        await client.post("/api/auth/register", json={
+            "username": "e2etest", "email": "e2e@test.com",
+            "password": "Test123!@#", "display_name": "E2E Test",
+        })
+        login_resp = await client.post("/api/auth/login", json={
+            "username": "e2etest", "password": "Test123!@#",
+        })
+        token = login_resp.json()["access_token"]
+        auth = {"Authorization": f"Bearer {token}"}
+
         # 提交追踪 (异步模式)
         resp = await client.post(
             "/api/trace",
             json={"url": "https://example.com", "title": "E2E集成测试事件"},
+            headers=auth,
         )
         assert resp.status_code == 200
         trace_data = resp.json()
@@ -75,7 +87,7 @@ async def test_trace_and_search_e2e():
         event_id = None
         for _ in range(60):  # 最多等 60 秒
             await asyncio.sleep(0.5)
-            resp = await client.get(f"/api/tasks/{task_id}")
+            resp = await client.get(f"/api/tasks/{task_id}", headers=auth)
             assert resp.status_code == 200
             task_data = resp.json()
             if task_data["status"] == "SUCCESS":

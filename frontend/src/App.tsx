@@ -14,6 +14,7 @@ const SituationalAwareness = lazy(() => import("./pages/SituationalAwareness"));
 const CommunityHub = lazy(() => import("./pages/CommunityHub"));
 const DebunkStudio = lazy(() => import("./pages/DebunkStudio"));
 const DeveloperPortal = lazy(() => import("./pages/DeveloperPortal"));
+const QuickCheck = lazy(() => import("./pages/QuickCheck"));
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useTheme } from "./hooks/useTheme";
 import { LanguageSwitcher } from "./components/LanguageSwitcher";
@@ -21,7 +22,7 @@ import { NotificationBell } from "./components/NotificationBell";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import {
   Search as SearchIcon, Shield, Activity, Menu, Sun, Moon, Monitor,
-  User, LogOut, Heart, Settings, X, ChevronDown, BookOpen, TrendingUp, Users, PenTool, Code,
+  User, LogOut, Heart, Settings, X, ChevronDown, BookOpen, TrendingUp, Users, PenTool, Code, Zap,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 
@@ -169,6 +170,7 @@ function NavBar() {
   const links = [
     { to: "/", label: "首页", icon: Activity },
     { to: "/search", label: "搜索", icon: SearchIcon },
+    { to: "/quick", label: "快速检测", icon: Zap },
     { to: "/rumors", label: "辟谣广场", icon: Shield },
     { to: "/academy", label: "信息素养", icon: BookOpen },
     { to: "/situational", label: "态势感知", icon: TrendingUp },
@@ -299,6 +301,7 @@ export default function App() {
                   <Route path="/community" element={<CommunityHub />} />
                   <Route path="/studio" element={<DebunkStudio />} />
                   <Route path="/developer" element={<DeveloperPortal />} />
+                <Route path="/quick" element={<QuickCheck />} />
                 </Routes>
               </Suspense>
             </main>

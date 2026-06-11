@@ -80,12 +80,20 @@ def _check_quick_rate(client_ip: str) -> bool:
     return True
 
 
-_usage_stats: dict[str, int] = defaultdict(int)  # hourly
+_usage_stats: dict[str, int] = defaultdict(int)  # hourly (capped at 100K entries)
 
+_MAX_USAGE_ENTRIES = 100000
 
 def _record_usage(client_ip: str):
     hour_key = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
-    _usage_stats[f"{client_ip}_{hour_key}"] += 1
+    key = f"{client_ip}_{hour_key}"
+    _usage_stats[key] += 1
+    # Cleanup: purge entries older than 24h when exceeding cap
+    if len(_usage_stats) > _MAX_USAGE_ENTRIES:
+        current_hour = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
+        cutoff_prefix = current_hour[:10]  # today's date
+        expired = [k for k in _usage_stats if k[-13:-3] < cutoff_prefix]
+        for k in expired: del _usage_stats[k]
 
 
 # =============================================================================

@@ -49,7 +49,7 @@ def _sanitize_csv_value(value) -> str:
 # ---------------------------------------------------------------------------
 
 @router.get("/export/events/csv")
-async def export_events_csv(
+async def export_events_csv(current_user = Depends(get_current_active_user),
     status: str | None = Query(None),
     credibility_min: float | None = Query(None),
     credibility_max: float | None = Query(None),

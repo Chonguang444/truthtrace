@@ -161,6 +161,14 @@ async def websocket_endpoint(
     - {"type": "rumor_update", ...}
     - {"type": "pong"}
     """
+    # Token 验证：有 token → 认证用户，无 token → 匿名（仅公共频道）
+    user_id = None
+    if token:
+        from app.auth.jwt import decode_token
+        payload = decode_token(token)
+        if payload and payload.get("type") == "access":
+            user_id = payload.get("sub")
+    authenticated = user_id is not None
     await manager.connect(ws)
     subscribed: set[str] = set()
 
@@ -189,6 +197,15 @@ async def websocket_endpoint(
             if action == "subscribe":
                 channel = msg.get("channel", "")
                 if channel:
+                    # 认证检查: task:/event:/rumors 频道需要登录
+                    sensitive = channel.startswith("task:") or channel.startswith("event:") or channel in ("rumors", "monitor")
+                    if sensitive and not authenticated:
+                        await ws.send_json({
+                            "type": "error",
+                            "message": "需要登录才能订阅此频道。请在连接时提供 token 参数。",
+                            "channel": channel,
+                        })
+                        continue
                     await manager.subscribe(ws, channel)
                     subscribed.add(channel)
                     await ws.send_json({

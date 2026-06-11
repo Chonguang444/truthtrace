@@ -5,7 +5,8 @@
 实时爬取仅由 POST /monitor/crawl 或 Celery Beat 定时任务触发。
 """
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
+from app.auth.jwt import get_admin_user
 
 router = APIRouter()
 
@@ -43,7 +44,7 @@ async def get_hot_items(
 
 
 @router.post("/monitor/crawl")
-async def trigger_monitor_crawl():
+async def trigger_monitor_crawl(current_user = Depends(get_admin_user)):
     """手动触发监控爬取（慢，需等待）"""
     sched = _get_scheduler()
     items = await sched.run_once()
@@ -63,7 +64,7 @@ async def get_narrative_alerts():
 
 
 @router.post("/monitor/alerts/{alert_id}/dismiss")
-async def dismiss_alert(alert_id: str):
+async def dismiss_alert(alert_id: str, current_user = Depends(get_admin_user)):
     sched = _get_scheduler()
     sched.alert_manager.dismiss_alert(alert_id)
     return {"status": "dismissed"}
