@@ -1,12 +1,17 @@
 {
-  "name": "TruthTrace — 平浪散暴",
+  "name": "TruthTrace - PingLang SanBao",
   "short_name": "TruthTrace",
-  "description": "全网事件追溯 & 辟谣平台。输入URL/关键词，追溯信息源头，分析传播链路，识别谣言。",
+  "description": "Web-wide rumor trace & debunk platform. 23-engine pipeline.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#2563eb",
   "orientation": "portrait-primary",
+  "categories": [
+    "news",
+    "utilities",
+    "education"
+  ],
   "icons": [
     {
       "src": "/icons/icon-192.png",
@@ -21,10 +26,23 @@
       "purpose": "any maskable"
     }
   ],
-  "categories": ["news", "utilities", "productivity"],
-  "lang": "zh-CN",
-  "dir": "ltr",
-  "screenshots": [],
-  "related_applications": [],
-  "prefer_related_applications": false
+  "share_target": {
+    "action": "/search",
+    "method": "GET",
+    "params": {
+      "title": "q",
+      "text": "q",
+      "url": "url"
+    }
+  },
+  "shortcuts": [
+    {
+      "name": "Search Trace",
+      "url": "/search"
+    },
+    {
+      "name": "Situational",
+      "url": "/situational"
+    }
+  ]
 }

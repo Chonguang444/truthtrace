@@ -104,3 +104,103 @@ async def get_narrative_summary():
             {"type": k, "count": v} for k, v in sorted(narratives.items(), key=lambda x: -x[1])
         ],
     }
+
+
+@router.get("/monitor/trends")
+async def get_monitor_trends(days: int = 7):
+    """获取监控历史趋势数据 — 热点数量/平台活跃度/叙事变迁/平均可信度随时间变化"""
+    from app.monitor.hotspot_monitor import monitor_scheduler
+    from collections import defaultdict
+    from datetime import datetime, timedelta, timezone
+
+    # Load persisted items from SQLite
+    persisted = monitor_scheduler._store.load_items(limit=500)
+    cached = [item.to_dict() for item in monitor_scheduler._cached_items]
+
+    all_items = persisted + [
+        i for i in cached
+        if not any(p.get("id") == i.get("id") for p in persisted)
+    ]
+
+    # Filter by date range
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days))
+    filtered = []
+    for item in all_items:
+        crawled_at = item.get("crawled_at") or item.get("created_at") or ""
+        if crawled_at:
+            try:
+                dt = datetime.fromisoformat(crawled_at) if isinstance(crawled_at, str) else crawled_at
+                if dt.replace(tzinfo=None) >= cutoff.replace(tzinfo=None):
+                    filtered.append(item)
+            except (ValueError, TypeError):
+                filtered.append(item)  # Keep if date parsing fails
+        else:
+            filtered.append(item)
+
+    if not filtered:
+        # Fallback to in-memory if no persisted data
+        return {
+            "trends": [], "platform_activity": {}, "narrative_timeline": [],
+            "credibility_trend": [], "total_items": 0,
+            "note": "暂无历史数据，请先触发监控爬取。持久化数据将在此展示。",
+        }
+
+    # 1. Hotspot count by day
+    by_day: dict[str, int] = defaultdict(int)
+    # 2. Platform activity by day
+    platform_by_day: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    # 3. Narrative timeline
+    narrative_by_day: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    # 4. Credibility trend
+    credibility_by_day: dict[str, list[float]] = defaultdict(list)
+
+    for item in filtered:
+        crawled_at = item.get("crawled_at") or ""
+        day = crawled_at[:10] if crawled_at else "unknown"
+
+        by_day[day] += 1
+        platform = item.get("platform", "unknown")
+        platform_by_day[day][platform] += 1
+
+        # Narrative
+        engine = item.get("engine_analysis")
+        if isinstance(engine, str):
+            try:
+                import json
+                engine = json.loads(engine)
+            except Exception:
+                engine = None
+        if isinstance(engine, dict):
+            na = engine.get("narrative_analysis", {})
+            dominant = na.get("dominant_narrative")
+            if dominant:
+                narrative_by_day[day][dominant] += 1
+            credibility = engine.get("credibility_score")
+            if credibility is not None:
+                credibility_by_day[day].append(float(credibility))
+
+    return {
+        "trends": [
+            {"date": d, "count": c}
+            for d, c in sorted(by_day.items())
+        ],
+        "platform_activity": {
+            d: dict(counts) for d, counts in sorted(platform_by_day.items())
+        },
+        "narrative_timeline": {
+            d: dict(counts) for d, counts in sorted(narrative_by_day.items())
+        },
+        "credibility_trend": [
+            {
+                "date": d,
+                "avg_credibility": round(sum(scores) / len(scores), 1),
+                "sample_count": len(scores),
+                "min": round(min(scores), 1),
+                "max": round(max(scores), 1),
+            }
+            for d, scores in sorted(credibility_by_day.items())
+            if scores
+        ],
+        "total_items": len(filtered),
+        "date_range_days": days,
+    }

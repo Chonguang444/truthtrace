@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from "react";
-import { Activity, Map, TrendingUp, Layers, AlertTriangle, ArrowUp, ArrowDown, Minus, Loader2 } from "lucide-react";
+import { Activity, Map, TrendingUp, Layers, AlertTriangle, ArrowUp, ArrowDown, Minus, Loader2, Radio } from "lucide-react";
 import { useApi } from "../hooks/useApi";
+import { RealTimeMonitor } from "../components/RealTimeMonitor";
 
 const TABS = [
+  { id: "monitor", label: "实时监控", icon: Radio },
   { id: "hotspots", label: "热点排行", icon: Activity },
   { id: "map", label: "传播地图", icon: Map },
   { id: "trends", label: "叙事趋势", icon: TrendingUp },
@@ -28,6 +30,7 @@ export default function SituationalAwareness() {
           </button>
         ))}
       </div>
+      {tab === "monitor" && <RealTimeMonitor />}
       {tab === "hotspots" && <HotspotsTab />}
       {tab === "map" && <MapTab />}
       {tab === "trends" && <TrendsTab />}

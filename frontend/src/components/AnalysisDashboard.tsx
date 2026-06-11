@@ -11,8 +11,11 @@ import { useState } from "react";
 import {
   AlertTriangle, Brain, Hash, Link2, Search, Globe,
   BookOpen, MessageSquare, BarChart3, ChevronDown, ChevronRight,
-  Shield, TrendingUp, Eye, Zap, FileText,
+  Shield, TrendingUp, Eye, Zap, FileText, Fingerprint,
 } from "lucide-react";
+import { AIDetectionConsensus } from "./AIDetectionConsensus";
+import { CausalGraphCard } from "./CausalGraphCard";
+import { CorrectionPanel } from "./CorrectionPanel";
 
 interface AnalysisDashboardProps {
   analysis: Record<string, any> | null;
@@ -225,7 +228,53 @@ export function AnalysisDashboard({ analysis, loading, compact = false }: Analys
             <MatchItem key={i} text={m.description} detail={`${m.tentative_part || ""} → ${m.certain_part || ""}`} />
           ))}
         </DimensionCard>
+
+        {/* 9. 引用完整性 (SatyaLens) */}
+        {analysis.satyalens_score && (
+          <DimensionCard
+            icon={Link2}
+            title={`引用完整性评分: ${((analysis.satyalens_score.overall_integrity_score || 0) * 100).toFixed(0)}/100`}
+            count={analysis.satyalens_score.citations_found || 0}
+            risk={(1 - (analysis.satyalens_score.overall_integrity_score || 0)) * 100}
+          >
+            <div className="text-[11px] text-muted-foreground space-y-0.5 px-3 pb-2">
+              <div>可验证引用: {analysis.satyalens_score.citations_verifiable || 0} · 模糊引用: {analysis.satyalens_score.citations_vague || 0}</div>
+              <div>引用链深度: L{analysis.satyalens_score.citation_chain_depth || 0} · 交叉验证: {analysis.satyalens_score.independent_corroboration ? "✅" : "❌"}</div>
+              {analysis.satyalens_score.red_flags?.slice(0, 2).map((f: any, i: number) => (
+                <div key={i} className="text-amber-600">⚠ {f.description?.slice(0, 100)}</div>
+              ))}
+            </div>
+          </DimensionCard>
+        )}
+
+        {/* 10. 第三方事实核查 (Google Fact Check) */}
+        {analysis.fact_check_crossref && (
+          <DimensionCard
+            icon={Globe}
+            title={`第三方事实核查: ${analysis.fact_check_crossref.matched_claims || 0} 条匹配`}
+            count={analysis.fact_check_crossref.matched_claims || 0}
+            risk={analysis.fact_check_crossref.matched_claims > 0 ? 30 : 0}
+          >
+            <div className="text-[11px] text-muted-foreground space-y-0.5 px-3 pb-2">
+              <div>搜索主张: {analysis.fact_check_crossref.total_claims_searched || 0} · 核查覆盖率: {((analysis.fact_check_crossref.fact_check_coverage || 0) * 100).toFixed(0)}%</div>
+              {analysis.fact_check_crossref.truth_tally && (
+                <div className="flex gap-2">
+                  {Object.entries(analysis.fact_check_crossref.truth_tally).map(([k, v]) => (
+                    <span key={k} className="text-xs">{k}: {v as number}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </DimensionCard>
+        )}
       </div>
+
+      {/* AI Detection Consensus (lmscan + smellcheck + original) */}
+      <AIDetectionConsensus
+        aiDetection={analysis.ai_detection}
+        lmscanDetection={analysis.lmscan_detection}
+        smellcheckDetection={analysis.smellcheck_detection}
+      />
 
       {/* Correction */}
       {analysis.correction && (
@@ -235,6 +284,20 @@ export function AnalysisDashboard({ analysis, loading, compact = false }: Analys
             <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">纠偏建议</span>
           </div>
           <p className="text-xs text-blue-700 dark:text-blue-400 whitespace-pre-line">{analysis.correction}</p>
+        </div>
+      )}
+
+      {/* Causal Graph (引擎 #20) */}
+      {analysis.causal_graph_result && (
+        <div className="mt-2">
+          <CausalGraphCard data={analysis.causal_graph_result} compact />
+        </div>
+      )}
+
+      {/* Correction Alternative (引擎 #22) */}
+      {analysis.correction_alternative && (
+        <div className="mt-2">
+          <CorrectionPanel data={analysis.correction_alternative} compact />
         </div>
       )}
 

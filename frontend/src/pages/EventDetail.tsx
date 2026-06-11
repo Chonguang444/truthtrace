@@ -9,6 +9,8 @@ import { useTranslation } from "react-i18next";
 import { useApi, useFavorites, useExport } from "../hooks/useApi";
 import { useAuth } from "../contexts/AuthContext";
 import { PropagationGraph } from "../components/PropagationGraph";
+import { PropagationGraphV2 } from "../components/PropagationGraphV2";
+import { FactCheckBadge } from "../components/FactCheckBadge";
 import { EventTimeline } from "../components/EventTimeline";
 import { SourceCard } from "../components/SourceCard";
 import { CredibilityGauge } from "../components/CredibilityGauge";
@@ -23,11 +25,14 @@ export function EventDetail() {
   const { add: addFav, remove: removeFav, data: favData, request: favReq } = useFavorites();
   const { exportSourcesCSV, exportReportPDF } = useExport();
   const [activeTab, setActiveTab] = useState<"overview" | "graph" | "timeline" | "sources">("overview");
+  const [graphVersion, setGraphVersion] = useState<"v1" | "v2">("v2");
   const [graphData, setGraphData] = useState<any>(null);
   const [timelineData, setTimelineData] = useState<any>(null);
   const [sourcesData, setSourcesData] = useState<any>(null);
+  const [analysisData, setAnalysisData] = useState<any>(null);
   const [isFaved, setIsFaved] = useState(false);
   const [favLoading, setFavLoading] = useState(false);
+  const [mergedGraphData, setMergedGraphData] = useState<any>(null);
 
   useEffect(() => {
     if (eventId) {
@@ -35,8 +40,49 @@ export function EventDetail() {
       request(`/api/events/${eventId}/graph`).then(setGraphData);
       request(`/api/events/${eventId}/timeline`).then(setTimelineData);
       request(`/api/events/${eventId}/sources`).then(setSourcesData);
+      request(`/api/events/${eventId}/analysis`).then(setAnalysisData);
     }
   }, [eventId]);
+
+  // Merge causal edges from analysis into propagation graph
+  useEffect(() => {
+    if (!graphData?.graph) return;
+    const base = { ...graphData.graph };
+    const causalEdges = analysisData?.analysis?.causal_graph_result?.graph?.edges || [];
+    const causalNodes = analysisData?.analysis?.causal_graph_result?.graph?.nodes || [];
+
+    if (causalEdges.length > 0) {
+      // Merge causal nodes that don't exist in propagation graph
+      const existingIds = new Set((base.nodes || []).map((n: any) => n.id));
+      const newNodes = causalNodes
+        .filter((n: any) => !existingIds.has(n.node_id))
+        .map((n: any, i: number) => ({
+          id: n.node_id,
+          label: n.label,
+          platform: "general",
+          url: "",
+          is_original: n.is_root,
+          authority_score: n.credibility,
+        }));
+
+      // Map causal edges to propagation edge format
+      const newEdges = causalEdges.map((e: any, i: number) => ({
+        id: e.source_id + "-causal-" + e.target_id,
+        source: e.source_id,
+        target: e.target_id,
+        type: "causal",
+        weight: e.confidence / 100,
+        causal_type: e.fallacy_detected ? "CONTRADICTS" : "CAUSES",
+      }));
+
+      setMergedGraphData({
+        nodes: [...(base.nodes || []), ...newNodes],
+        edges: [...(base.edges || []), ...newEdges],
+      });
+    } else {
+      setMergedGraphData(base);
+    }
+  }, [graphData, analysisData]);
 
   useEffect(() => {
     if (!isAuthenticated || !eventId) return;
@@ -273,14 +319,87 @@ export function EventDetail() {
                 </Link>
               </div>
             )}
+
+            {/* FactCheck + Citation Integrity Badges */}
+            {analysisData && (
+              <div className="space-y-4">
+                {/* SatyaLens Citation Integrity */}
+                {analysisData.satyalens_score && (
+                  <div className="p-4 rounded-lg border bg-card">
+                    <h4 className="text-sm font-semibold mb-2">引用完整性评分</h4>
+                    <div className="flex items-center gap-4">
+                      <div className="text-2xl font-bold">
+                        {(analysisData.satyalens_score.overall_integrity_score * 100).toFixed(0)}
+                        <span className="text-sm text-muted-foreground">/100</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {analysisData.satyalens_score.citations_found} 处引用
+                        · {analysisData.satyalens_score.citations_verifiable} 可验证
+                        · L{analysisData.satyalens_score.citation_chain_depth} 引用链
+                      </div>
+                    </div>
+                    {analysisData.satyalens_score.red_flags?.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {analysisData.satyalens_score.red_flags.slice(0, 2).map((f: any, i: number) => (
+                          <div key={i} className="text-xs text-amber-600 flex items-start gap-1">
+                            <AlertCircle size={12} className="mt-0.5 shrink-0" />
+                            {f.description}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Google Fact Check */}
+                {analysisData.fact_check_crossref && (
+                  <div className="p-4 rounded-lg border bg-card">
+                    <h4 className="text-sm font-semibold mb-2">第三方事实核查</h4>
+                    <FactCheckBadge
+                      matches={analysisData.fact_check_crossref.matches || []}
+                      totalSearched={analysisData.fact_check_crossref.total_claims_searched}
+                      summary={analysisData.fact_check_crossref.summary}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
         {activeTab === "graph" && (
           <div className="p-6 rounded-lg border bg-card">
-            <h3 className="font-semibold mb-4">{t("event.propagation_graph")}</h3>
-            {graphData?.graph ? (
-              <PropagationGraph data={graphData.graph} />
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold">{t("event.propagation_graph")}</h3>
+              <div className="flex items-center gap-1 text-xs">
+                <button
+                  onClick={() => setGraphVersion("v1")}
+                  className={`px-2.5 py-1 rounded-l-md border transition-colors ${
+                    graphVersion === "v1"
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  D3.js
+                </button>
+                <button
+                  onClick={() => setGraphVersion("v2")}
+                  className={`px-2.5 py-1 rounded-r-md border transition-colors ${
+                    graphVersion === "v2"
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  Cytoscape
+                </button>
+              </div>
+            </div>
+            {mergedGraphData?.nodes?.length ? (
+              graphVersion === "v2" ? (
+                <PropagationGraphV2 data={mergedGraphData} showTimeline />
+              ) : (
+                <PropagationGraph data={mergedGraphData} />
+              )
             ) : (
               <div className="flex items-center justify-center h-64 text-muted-foreground">
                 {loading ? (

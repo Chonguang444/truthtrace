@@ -43,6 +43,11 @@ const PLATFORM_COLORS: Record<string, string> = {
   news: "#10B981",
   general: "#6B7280",
   unknown: "#9CA3AF",
+  xiaohongshu: "#FF2442",
+  douyin: "#000000",
+  kuaishou: "#FF5000",
+  bilibili: "#FB7299",
+  youtube: "#FF0000",
 };
 
 const EDGE_COLORS: Record<string, string> = {

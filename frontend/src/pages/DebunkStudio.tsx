@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { PenTool, Image, Video, Share2, Copy, Sparkles, Loader2, CheckCircle } from "lucide-react";
 import { useApi } from "../hooks/useApi";
+import { CorrectionPanel } from "../components/CorrectionPanel";
 
 const API = import.meta.env.VITE_API_BASE_URL || "";
 const TABS = [
@@ -44,63 +45,108 @@ function SectionLoader() {
 
 function ArticleTab() {
   const [eventId, setEventId] = useState("");
-  const [tone, setTone] = useState("balanced");
-  const [result, setResult] = useState<any>(null);
+  const [eventData, setEventData] = useState<any>(null);
+  const [analysisData, setAnalysisData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
 
-  const generate = async () => {
+  const fetchAndGenerate = async () => {
+    if (!eventId) return;
     setLoading(true);
-    const res = await fetch(API + "/api/studio/generate-article", {
-      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-      body: JSON.stringify({ event_id: eventId, tone }),
-    });
-    setResult(await res.json());
+    setError("");
+    try {
+      // Fetch event + analysis data
+      const [evtRes, anaRes] = await Promise.all([
+        fetch(`${API}/api/events/${eventId}`, { credentials: "include" }),
+        fetch(`${API}/api/events/${eventId}/analysis`, { credentials: "include" }),
+      ]);
+      if (!evtRes.ok) throw new Error("事件未找到");
+      setEventData(await evtRes.json());
+      if (anaRes.ok) setAnalysisData(await anaRes.json());
+    } catch (e: any) {
+      setError(e.message || "获取失败");
+    }
     setLoading(false);
   };
 
-  const copyArticle = () => {
-    const text = result?.sections?.map((s: any) => `## ${s.heading}\n${s.content}`).join("\n\n") || "";
-    navigator.clipboard.writeText(text);
-    setCopied(true); setTimeout(() => setCopied(false), 2000);
-  };
+  const engineAnalysis = analysisData?.analysis || null;
+  const event = eventData || {};
 
   return (
     <div className="space-y-4">
+      {/* Input */}
       <div className="p-4 rounded-xl border bg-card space-y-3">
-        <input placeholder="事件 ID" value={eventId} onChange={e => setEventId(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-sm" />
-        <div className="flex gap-2 flex-wrap">
-          {["balanced", "firm", "educational", "empathetic"].map(t => (
-            <button key={t} onClick={() => setTone(t)} className={`px-3 py-1.5 rounded-full text-xs font-medium ${tone === t ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/80"}`}>
-              {t === "balanced" ? "中立" : t === "firm" ? "坚定" : t === "educational" ? "教育" : "共情"}
-            </button>
-          ))}
+        <p className="text-xs text-muted-foreground">
+          输入事件 ID，自动获取完整引擎分析结果。引擎 #22 (Sift Correction Agent) 会自动生成辟谣叙事替代方案。
+        </p>
+        <div className="flex gap-2">
+          <input
+            placeholder="输入事件 ID (例: evt-abc123)"
+            value={eventId}
+            onChange={e => setEventId(e.target.value)}
+            className="flex-1 px-3 py-2 rounded-lg border text-sm"
+            onKeyDown={e => e.key === "Enter" && fetchAndGenerate()}
+          />
+          <button
+            onClick={fetchAndGenerate}
+            disabled={!eventId || loading}
+            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 whitespace-nowrap"
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "获取分析"}
+          </button>
         </div>
-        <button onClick={generate} disabled={!eventId || loading} className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50">
-          {loading ? "生成中..." : "生成辟谣文章"}
-        </button>
       </div>
 
       {loading && <SectionLoader />}
+      {error && <div className="p-4 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm">{error}</div>}
 
-      {result && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <h3 className="font-semibold">{result.title}</h3>
-              <span className={`px-2 py-0.5 rounded text-[10px] ${result.credibility_score < 30 ? "bg-red-100 text-red-700" : ""}`}>{result.engine_verdict} · {result.word_count}字</span>
-            </div>
-            <button onClick={copyArticle} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-accent text-xs">
-              {copied ? <><CheckCircle className="h-3 w-3 text-green-500" />已复制</> : <><Copy className="h-3 w-3" />复制全文</>}
-            </button>
+      {/* Event summary */}
+      {eventData && (
+        <div className="p-4 rounded-lg border bg-card">
+          <h3 className="font-semibold mb-1">{event.title || "未知事件"}</h3>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span>可信度: <strong>{event.credibility_score || "?"}/100</strong></span>
+            {event.rumor_verdict && <span className="text-red-600 font-medium">判定: {event.rumor_verdict}</span>}
+            <span>来源: {event.source_count || 0}</span>
           </div>
-          {result.sections?.map((s: any, i: number) => (
-            <div key={i} className="p-4 rounded-lg border bg-card">
-              <h4 className="font-semibold text-sm mb-2">{s.heading}</h4>
-              <p className="text-sm leading-relaxed whitespace-pre-wrap">{s.content}</p>
-            </div>
-          ))}
-          <p className="text-[10px] text-muted-foreground p-3 rounded-lg bg-muted/30">{result.disclaimer}</p>
+        </div>
+      )}
+
+      {/* CorrectionPanel with engine data */}
+      {engineAnalysis?.correction_alternative && (
+        <CorrectionPanel data={engineAnalysis.correction_alternative} />
+      )}
+
+      {/* Fallback: show structured content from old API if available */}
+      {!engineAnalysis?.correction_alternative && engineAnalysis && (
+        <div className="p-6 rounded-lg border bg-muted/20 text-center text-sm text-muted-foreground">
+          <p className="mb-2">该事件的引擎分析已完成，但尚未生成叙事替代方案。</p>
+          <p>请确认该事件是否已执行完整的 23 步推理管线分析。</p>
+          <p className="mt-2 text-xs">如果是旧事件，可通过重新分析获取叙事替代内容。</p>
+        </div>
+      )}
+
+      {/* No analysis at all */}
+      {!engineAnalysis && !loading && eventData && (
+        <div className="p-6 rounded-lg border bg-muted/20 text-center text-sm text-muted-foreground">
+          <p>该事件暂无完整的引擎分析结果。</p>
+        </div>
+      )}
+
+      {/* Instructions when empty */}
+      {!eventData && !loading && !error && (
+        <div className="p-8 rounded-xl border border-dashed bg-muted/10 text-center">
+          <Sparkles className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
+          <h3 className="font-semibold mb-1">辟谣文章创作</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            输入已分析的事件 ID，直接获取引擎生成的辟谣叙事替代方案。<br/>
+            支持 5 种语气策略，一键复制到任意平台。
+          </p>
+          <div className="inline-flex flex-wrap gap-1.5 justify-center">
+            {["中立客观 · 适合任何场景", "权威坚定 · 适合官方发布", "共情理解 · 适合社交传播", "教育科普 · 适合深度解析", "简洁直接 · 适合微博/短视频"].map((t, i) => (
+              <span key={i} className="px-2 py-1 rounded text-[10px] bg-muted text-muted-foreground">{t}</span>
+            ))}
+          </div>
         </div>
       )}
     </div>

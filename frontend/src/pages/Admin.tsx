@@ -7,7 +7,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Shield, Activity, Bell, Wifi, Users, MessageSquare,
-  Clock, Search, ArrowLeft, Layers,
+  Clock, Search, ArrowLeft, Layers, BarChart3,
 } from "lucide-react";
 import { OverviewTab } from "../components/admin/OverviewTab";
 import { AnalysisTab } from "../components/admin/AnalysisTab";
@@ -17,12 +17,14 @@ import { UsersTab } from "../components/admin/UsersTab";
 import { FeedbackTab } from "../components/admin/FeedbackTab";
 import { RulesTab } from "../components/admin/RulesTab";
 import { QualityTab } from "../components/admin/QualityTab";
+import { AnalyticsDashboard } from "../components/AnalyticsDashboard";
 
 const TABS = [
   { id: "overview", label: "概览", icon: Activity },
   { id: "analysis", label: "分析审查", icon: Search },
   { id: "alerts", label: "叙事告警", icon: Bell },
   { id: "quality", label: "质量仪表盘", icon: Layers },
+  { id: "analytics", label: "辟谣效果", icon: BarChart3 },
   { id: "health", label: "系统健康", icon: Wifi },
   { id: "users", label: "用户管理", icon: Users },
   { id: "feedback", label: "反馈审核", icon: MessageSquare },
@@ -60,6 +62,7 @@ export function Admin() {
         {tab === "alerts" && <AlertsTab />}
         {tab === "health" && <HealthTab />}
         {tab === "quality" && <QualityTab />}
+        {tab === "analytics" && <AnalyticsDashboard />}
         {tab === "users" && <UsersTab />}
         {tab === "feedback" && <FeedbackTab />}
         {tab === "rules" && <RulesTab />}

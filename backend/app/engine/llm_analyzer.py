@@ -277,3 +277,179 @@ async def run_llm_analysis(
     except Exception as e:
         logger.warning(f"LLM 分析失败: {e}")
         return None
+
+
+# =============================================================================
+# Sift Critic Agent — 对抗审查 (P1)
+# =============================================================================
+# 在所有引擎完成后运行，审查引擎间一致性，标记潜在误报。
+
+@dataclass
+class CriticReview:
+    """Critic Agent 审查结果"""
+    inter_engine_agreement: float = 0.0      # 引擎间一致性 0-1
+    conflicting_findings: list[dict] = field(default_factory=list)
+    confidence_adjustment: float = 0.0       # 置信度调整 (-20 to +20)
+    false_positive_risks: list[str] = field(default_factory=list)
+    reviewer_notes: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "inter_engine_agreement": round(self.inter_engine_agreement, 2),
+            "conflicting_findings": self.conflicting_findings,
+            "confidence_adjustment": round(self.confidence_adjustment, 1),
+            "false_positive_risks": self.false_positive_risks,
+            "reviewer_notes": self.reviewer_notes,
+        }
+
+
+def run_critic_review(engine_results: dict) -> CriticReview:
+    """
+    Sift 式 Critic Agent 对抗审查。
+
+    在所有引擎完成后运行，审查:
+    1. 引擎间一致性 — 各引擎是否指向同一结论
+    2. 矛盾发现 — 哪些引擎结论互相冲突
+    3. 误报风险 — 哪些检测可能是假阳性
+    4. 置信度校准 — 综合调整可信度
+    """
+    review = CriticReview()
+
+    # 1. 收集各引擎的"方向"信号
+    signals: list[tuple[str, float, str]] = []  # (engine_name, strength, direction)
+
+    # 失真检测 → 有匹配=负面信号
+    distortion = engine_results.get("distortion_analysis", {}) or {}
+    if isinstance(distortion, dict):
+        d_matches = len(distortion.get("matches", []))
+        if d_matches > 0:
+            risk = distortion.get("overall_risk", "moderate")
+            risk_map = {"high": 0.9, "moderate": 0.5, "low": 0.2}
+            signals.append(("distortion", risk_map.get(str(risk), 0.5) * min(d_matches, 5) / 5, "negative"))
+
+    # 逻辑谬误
+    fallacy = engine_results.get("fallacy_analysis", {}) or {}
+    if isinstance(fallacy, dict):
+        fc = fallacy.get("fallacy_count", 0)
+        if fc > 0:
+            signals.append(("fallacy", min(fc / 10, 1.0), "negative"))
+
+    # 统计滥用
+    stat = engine_results.get("statistical_analysis", {}) or {}
+    if isinstance(stat, dict):
+        sr = stat.get("risk_score", 0)
+        if sr > 10:
+            signals.append(("statistical", sr / 100, "negative"))
+
+    # 域验证 → 有被反驳的主张
+    domain = engine_results.get("domain_analysis", {}) or {}
+    if isinstance(domain, dict):
+        refuted = len(domain.get("refuted_claims", []))
+        if refuted > 0:
+            signals.append(("domain", min(refuted / 5, 1.0), "negative"))
+
+    # AI 检测
+    ai = engine_results.get("ai_detection", {}) or {}
+    if isinstance(ai, dict):
+        ai_score = ai.get("risk_score", 0)
+        if ai_score > 20:
+            signals.append(("ai_detection", ai_score / 100, "negative"))
+
+    # lmscan
+    lmscan = engine_results.get("lmscan_detection", {}) or {}
+    if isinstance(lmscan, dict):
+        lp = lmscan.get("ai_probability", 0)
+        if lp > 0.3:
+            signals.append(("lmscan", lp, "negative"))
+
+    # smellcheck
+    smell = engine_results.get("smellcheck_detection", {}) or {}
+    if isinstance(smell, dict):
+        sa = smell.get("anomaly_score", 0)
+        if sa > 20:
+            signals.append(("smellcheck", sa / 100, "negative"))
+
+    # SatyaLens 引用完整性
+    satyalens = engine_results.get("satyalens_score", {}) or {}
+    if isinstance(satyalens, dict):
+        si = satyalens.get("overall_integrity_score", 0.5)
+        if si < 0.3:
+            signals.append(("satyalens", 1.0 - si, "negative"))
+        elif si > 0.7:
+            signals.append(("satyalens", si, "positive"))
+
+    # 2. 计算一致性
+    negative_signals = [s for s in signals if s[2] == "negative"]
+    positive_signals = [s for s in signals if s[2] == "positive"]
+
+    # 引擎间一致性 = 同向信号强度 / 总信号强度
+    neg_strengths = [s[1] for s in negative_signals]
+    pos_strengths = [s[1] for s in positive_signals]
+    total_strength = sum(neg_strengths) + sum(pos_strengths) + 0.001
+
+    # 如果大部分信号同向 → 高一致性
+    if neg_strengths and not pos_strengths:
+        review.inter_engine_agreement = min(sum(neg_strengths) / len(neg_strengths), 1.0)
+    elif pos_strengths and not neg_strengths:
+        review.inter_engine_agreement = min(sum(pos_strengths) / len(pos_strengths), 1.0)
+    else:
+        # 正负信号都有 → 低一致性
+        review.inter_engine_agreement = max(0, 1.0 - abs(
+            sum(neg_strengths) - sum(pos_strengths)) / total_strength)
+
+    # 3. 检测矛盾的发现
+    if len(negative_signals) >= 2 and len(positive_signals) >= 1:
+        review.conflicting_findings.append({
+            "type": "polarity_conflict",
+            "negative_engines": [s[0] for s in negative_signals],
+            "positive_engines": [s[0] for s in positive_signals],
+            "note": "部分引擎标记为问题内容，但其他引擎显示正面信号。这可能意味着特殊的边缘情况。",
+        })
+
+    # 4. 标记误报风险
+    # 仅单个引擎标记为高 → 可能误报
+    if len(negative_signals) == 1 and negative_signals[0][1] > 0.7:
+        review.false_positive_risks.append(
+            f"仅 '{negative_signals[0][0]}' 引擎给出高信号 ({negative_signals[0][1]:.2f})，"
+            f"其他引擎未发现对应问题。建议人工复核。"
+        )
+
+    # 仅模式匹配引擎标记 → 可能误报
+    pattern_engines = {"distortion", "fallacy", "statistical", "composite"}
+    flagged_pattern = [s for s in negative_signals if s[0] in pattern_engines]
+    if len(flagged_pattern) >= 2 and len(negative_signals) == len(flagged_pattern):
+        review.false_positive_risks.append(
+            "仅模式匹配引擎给出负面信号，深层语义引擎 (AI检测/引用完整性) 未发现异常。"
+            "模式匹配可能在讽刺/反讽/幽默文本上产生误报。"
+        )
+
+    # 5. 置信度校准
+    # 高一致性 → 提升置信度
+    if review.inter_engine_agreement > 0.8 and len(signals) >= 3:
+        review.confidence_adjustment = +10.0
+    elif review.inter_engine_agreement > 0.6:
+        review.confidence_adjustment = +5.0
+    # 有冲突 → 降低
+    if review.conflicting_findings:
+        review.confidence_adjustment -= 10.0
+    # 有误报风险 → 降低
+    if review.false_positive_risks:
+        review.confidence_adjustment -= 5.0 * len(review.false_positive_risks)
+
+    # Clamp
+    review.confidence_adjustment = max(-20.0, min(20.0, review.confidence_adjustment))
+
+    # 6. 生成审查笔记
+    parts = []
+    if signals:
+        parts.append(f"{len(signals)} 引擎发出信号 ("
+                    f"{len(negative_signals)}负/{len(positive_signals)}正)")
+    parts.append(f"引擎一致性: {review.inter_engine_agreement:.0%}")
+    parts.append(f"置信度调整: {review.confidence_adjustment:+.0f}")
+    if review.conflicting_findings:
+        parts.append("⚠ 发现矛盾信号 — 建议人工复核")
+    if review.false_positive_risks:
+        parts.append("⚠ 存在误报风险")
+    review.reviewer_notes = " | ".join(parts)
+
+    return review

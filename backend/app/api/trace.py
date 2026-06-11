@@ -11,6 +11,7 @@ from pydantic import BaseModel, HttpUrl, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.base import get_db
+from app.security import require_safe_url
 
 logger = logging.getLogger("truthtrace.trace")
 router = APIRouter()
@@ -302,7 +303,7 @@ async def list_tasks(
 
 @router.get("/trace/url-chain")
 async def resolve_url_chain(
-    url: str = Query(..., description="需要解析的 URL"),
+    url: str = Depends(require_safe_url),
 ):
     """
     解析 URL 跳转链
@@ -310,9 +311,6 @@ async def resolve_url_chain(
     跟随 HTTP 重定向和常见短链接服务，还原原始 URL。
     支持：t.cn, bit.ly, ow.ly, short.com 等短链接服务。
     """
-    from app.security import validate_url_safe
-    if not validate_url_safe(url):
-        raise HTTPException(400, "URL 不安全或不允许")
     from app.crawler.resolver import URLResolver
 
     resolver = URLResolver()
@@ -327,3 +325,65 @@ async def resolve_url_chain(
             for i, (u, s) in enumerate(chain)
         ],
     }
+
+
+class FactCheckRequest(BaseModel):
+    """事实核查交叉验证请求"""
+    text: str
+    title: str | None = None
+    language: str = "zh"
+
+
+@router.post("/trace/factcheck")
+async def factcheck_claims(request: FactCheckRequest):
+    """
+    使用 Google Fact Check Tools API 交叉验证文本中的主张。
+
+    将文本中的事实主张与全球事实核查数据库 (Snopes/PolitiFact/FactCheck.org 等) 比对。
+    需要配置 GOOGLE_FACT_CHECK_API_KEY 环境变量。
+    """
+    from app.engine.factcheck_api import FactCheckAPI
+    from app.config import get_settings
+
+    api_key = get_settings().google_fact_check_api_key
+    if not api_key:
+        return {
+            "status": "unavailable",
+            "message": "Google Fact Check API 未配置。设置 GOOGLE_FACT_CHECK_API_KEY 以启用。",
+            "matches": [],
+            "summary": "API key 缺失",
+        }
+
+    api = FactCheckAPI(api_key=api_key)
+    result = await api.analyze(
+        text=request.text,
+        title=request.title or "",
+        language=request.language,
+    )
+    return result.to_dict()
+
+
+class CitationVerifyRequest(BaseModel):
+    """引用完整性验证请求"""
+    text: str
+    title: str | None = None
+    cited_urls: list[str] = []
+
+
+@router.post("/trace/verify-citations")
+async def verify_citations(request: CitationVerifyRequest):
+    """
+    验证文本中的引用完整性。
+
+    评估文本中每个引用来源的可验证性，输出 0.0-1.0 的完整性评分。
+    纯本地分析，无需外部 API。
+    """
+    from app.engine.satyalens_score import SatyaLensScorer
+
+    scorer = SatyaLensScorer()
+    result = scorer.analyze(
+        text=request.text,
+        title=request.title or "",
+        cited_urls=request.cited_urls,
+    )
+    return result.to_dict()

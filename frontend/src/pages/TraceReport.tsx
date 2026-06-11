@@ -14,12 +14,16 @@ import {
   AlertCircle, ArrowLeft, Shield, ExternalLink, Download, FileText,
   BarChart3, BookOpen, CheckCircle, XCircle, AlertTriangle,
   TrendingUp, Clock, Globe, Hash, Brain, Link2, Search,
-  MessageSquare, Eye, Printer, Copy,
+  MessageSquare, Eye, Printer, Copy, GitBranch,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useApi, useExport } from "../hooks/useApi";
 import { LoadingState, ErrorState } from "../components/Status";
 import { formatDate, credibilityColor, verdictLabel } from "../lib/utils";
+import { CausalGraphCard } from "../components/CausalGraphCard";
+import { CorrectionPanel } from "../components/CorrectionPanel";
+import { ShareButton } from "../components/ShareDebunk";
+import { exportClaimReviewJSONLD } from "../lib/claimreview";
 
 // =============================================================================
 // 日期工具
@@ -201,6 +205,18 @@ export function TraceReport() {
 
   const verdict: string = engineAnalysis?.verdict || "unverifiable";
   const score: number = Number(engineAnalysis?.credibility_score) || report.credibility_score || 50;
+  // Generate ClaimReview JSON-LD for SEO
+  const claimReviewJSONLD = exportClaimReviewJSONLD({
+    claimText: report.event_title || "",
+    claimDate: report.created_at || undefined,
+    verdict: engineAnalysis?.verdict || "unverifiable",
+    credibilityScore: score,
+    reviewText: engineAnalysis?.correction || "",
+    reviewUrl: `${window.location.origin}/events/${eventId}/report`,
+    publisherName: "TruthTrace",
+    publisherUrl: "https://truthtrace.app",
+  });
+
   const verdictCN: Record<string, string> = {
     true: "该信息经分析基本属实", likely_true: "该信息经分析大概率属实",
     misleading: "该信息存在误导性内容", likely_false: "该信息经分析大概率虚假",
@@ -225,12 +241,18 @@ export function TraceReport() {
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl print:max-w-full">
+      {/* ClaimReview JSON-LD */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(claimReviewJSONLD) }} />
+
       {/* ===== 导航 ===== */}
       <div className="flex items-center justify-between mb-6 print:hidden">
         <Link to={`/events/${eventId}`} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" /> 返回事件详情
         </Link>
         <div className="flex gap-2">
+          <button onClick={() => { navigator.clipboard.writeText(JSON.stringify(claimReviewJSONLD, null, 2)); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-accent" title="复制 Schema.org ClaimReview JSON-LD">
+            <Copy className="h-3.5 w-3.5" /> JSON-LD
+          </button>
           <button onClick={() => eventId && exportReportPDF(eventId)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90">
             <Download className="h-3.5 w-3.5" /> 导出 PDF
           </button>
@@ -239,6 +261,17 @@ export function TraceReport() {
           </button>
         </div>
       </div>
+
+      {/* 分享辟谣卡 */}
+      {engineAnalysis?.correction_alternative?.short_correction && (
+        <div className="mb-6 p-4 rounded-xl border bg-card print:hidden">
+          <ShareButton
+            text={engineAnalysis.correction_alternative.short_correction}
+            reportUrl={`${window.location.origin}/events/${eventId}/report`}
+            hashtags={["辟谣", "事实核查", "TruthTrace"]}
+          />
+        </div>
+      )}
 
       {/* ========================================================================================= */}
       {/* 标题页 */}
@@ -685,6 +718,127 @@ export function TraceReport() {
           </div>
         </div>
       </section>
+
+      {/* ========================================================================================= */}
+      {/* 4.5 引用完整性评估 (SatyaLens) */}
+      {/* ========================================================================================= */}
+      {engineAnalysis?.satyalens_score && (
+        <section className="mb-8 p-8 rounded-xl border bg-card print:border-none print:p-4">
+          <h2 className="text-lg font-bold mb-4 flex items-center gap-2 border-b pb-2">
+            <Link2 className="h-5 w-5" /> 引用完整性评估
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div className="p-4 rounded-lg border bg-muted/20 text-center">
+              <div className="text-3xl font-bold">
+                {((engineAnalysis.satyalens_score.overall_integrity_score || 0) * 100).toFixed(0)}
+              </div>
+              <div className="text-xs text-muted-foreground">完整性评分 /100</div>
+            </div>
+            <div className="p-4 rounded-lg border bg-muted/20 text-center">
+              <div className="text-3xl font-bold">{engineAnalysis.satyalens_score.citations_found || 0}</div>
+              <div className="text-xs text-muted-foreground">引用声明</div>
+            </div>
+            <div className="p-4 rounded-lg border bg-muted/20 text-center">
+              <div className="text-3xl font-bold">L{engineAnalysis.satyalens_score.citation_chain_depth || 0}</div>
+              <div className="text-xs text-muted-foreground">引用链深度</div>
+            </div>
+          </div>
+          <div className="text-xs text-muted-foreground space-y-1">
+            <p><strong>可验证引用:</strong> {engineAnalysis.satyalens_score.citations_verifiable || 0} · <strong>模糊引用:</strong> {engineAnalysis.satyalens_score.citations_vague || 0} · <strong>缺失引用:</strong> {engineAnalysis.satyalens_score.citations_missing || 0}</p>
+            <p><strong>主张-来源一致性:</strong> {((engineAnalysis.satyalens_score.claim_source_alignment || 0) * 100).toFixed(0)}% · <strong>独立交叉验证:</strong> {engineAnalysis.satyalens_score.independent_corroboration ? "✅ 是" : "❌ 否"}</p>
+            {engineAnalysis.satyalens_score.summary && <p className="mt-2 italic">📋 {engineAnalysis.satyalens_score.summary}</p>}
+          </div>
+          {engineAnalysis.satyalens_score.red_flags?.length > 0 && (
+            <div className="mt-4 p-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20">
+              <h4 className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-2">⚠ 引用质量问题 ({engineAnalysis.satyalens_score.red_flags.length} 个)</h4>
+              {engineAnalysis.satyalens_score.red_flags.map((f: any, i: number) => (
+                <div key={i} className="text-[11px] text-amber-600 dark:text-amber-500 mb-1">
+                  [{f.severity?.toUpperCase()}] {f.description}
+                  {f.recommendation && <div className="text-amber-500">→ {f.recommendation}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* ========================================================================================= */}
+      {/* 4.6 第三方事实核查交叉验证 (Google Fact Check) */}
+      {/* ========================================================================================= */}
+      {engineAnalysis?.fact_check_crossref && (
+        <section className="mb-8 p-8 rounded-xl border bg-card print:border-none print:p-4">
+          <h2 className="text-lg font-bold mb-4 flex items-center gap-2 border-b pb-2">
+            <Globe className="h-5 w-5" /> 第三方事实核查交叉验证
+          </h2>
+          <p className="text-xs text-muted-foreground mb-4">
+            通过 Google Fact Check Tools API，将信息中的关键主张与全球事实核查数据库
+            (Snopes, PolitiFact, FactCheck.org, Full Fact 等) 进行交叉比对。
+          </p>
+          {engineAnalysis.fact_check_crossref.matches?.length > 0 ? (
+            <div className="space-y-3">
+              {engineAnalysis.fact_check_crossref.matches.slice(0, 10).map((m: any, i: number) => (
+                <div key={i} className="p-3 rounded-lg border bg-muted/10">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded ${
+                      m.rating_normalized === "true" ? "bg-green-100 text-green-700" :
+                      m.rating_normalized === "false" ? "bg-red-100 text-red-700" :
+                      m.rating_normalized === "misleading" ? "bg-amber-100 text-amber-700" :
+                      "bg-gray-100 text-gray-600"
+                    }`}>{m.textual_rating || m.rating_normalized}</span>
+                    <span className="text-xs text-muted-foreground">{m.publisher_name}</span>
+                    {m.review_date && <span className="text-[10px] text-muted-foreground">{m.review_date.slice(0, 10)}</span>}
+                  </div>
+                  {m.claim_text && <p className="text-xs text-muted-foreground mb-1">"{m.claim_text?.slice(0, 200)}"</p>}
+                  {m.snippet && <p className="text-[11px] text-muted-foreground">{m.snippet?.slice(0, 150)}</p>}
+                  {m.fact_check_url && (
+                    <a href={m.fact_check_url} target="_blank" rel="noopener noreferrer"
+                       className="text-[10px] text-blue-500 hover:underline mt-1 inline-block">
+                      查看完整核查 →
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-4 text-center text-sm text-muted-foreground">
+              {engineAnalysis.fact_check_crossref.summary || "未找到匹配的第三方核查结果。"}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* ========================================================================================= */}
+      {/* 4.7 GraphRAG-Causal 因果图谱分析 (引擎 #20) */}
+      {/* ========================================================================================= */}
+      {engineAnalysis?.causal_graph_result && (
+        <section className="mb-8 p-8 rounded-xl border bg-card print:border-none print:p-4">
+          <h2 className="text-lg font-bold mb-4 flex items-center gap-2 border-b pb-2">
+            <GitBranch className="h-5 w-5" /> 因果图谱分析 (Causal Graph)
+          </h2>
+          <p className="text-xs text-muted-foreground mb-4">
+            从信息中提取因果关系声明，检测因果谬误（后此谬误、相关即因果、遗漏混淆变量、滑坡论证等），
+            并沿因果链传导可信度评分。下游节点的可信度 ≤ 上游节点可信度 × 边的置信度。
+          </p>
+          <CausalGraphCard data={engineAnalysis.causal_graph_result} />
+        </section>
+      )}
+
+      {/* ========================================================================================= */}
+      {/* 4.8 Correction Agent 叙事替代辟谣 (引擎 #22) */}
+      {/* ========================================================================================= */}
+      {engineAnalysis?.correction_alternative && (
+        <section className="mb-8 p-8 rounded-xl border bg-card print:border-none print:p-4">
+          <h2 className="text-lg font-bold mb-4 flex items-center gap-2 border-b pb-2">
+            <MessageSquare className="h-5 w-5" /> 叙事替代辟谣建议
+          </h2>
+          <p className="text-xs text-muted-foreground mb-4">
+            Sift Correction Agent 基于认知科学原理生成多层辟谣内容。
+            提供 5 种语气策略（中立/权威/共情/教育/简洁），帮助在不同场景下有效辟谣。
+            支持一键复制，适配微博、微信、官方声明等不同发布渠道。
+          </p>
+          <CorrectionPanel data={engineAnalysis.correction_alternative} />
+        </section>
+      )}
 
       {/* ========================================================================================= */}
       {/* 5. 参考文献 (References) */}

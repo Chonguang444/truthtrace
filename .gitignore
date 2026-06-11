@@ -38,3 +38,11 @@ Desktop.ini
 .pytest_cache/
 .coverage
 htmlcov/
+# Analysis temp data
+backend/bilibili_*.json
+backend/bilibili_*.md
+backend/monitor_cache.db
+backend/monitor_cache.db-journal
+backend/_search_bili.py
+scripts/__pycache__/
+*.pid

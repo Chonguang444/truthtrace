@@ -13,6 +13,8 @@
 from __future__ import annotations
 import asyncio
 import logging
+import json
+import os
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from typing import Optional
@@ -301,6 +303,84 @@ class MonitorState:
     next_crawl_at: Optional[datetime] = None
 
 
+class PersistenceStore:
+    """SQLite 持久化 — 重启后可恢复监控数据"""
+
+    def __init__(self, db_path: str = ""):
+        import sqlite3
+        self.db_path = db_path or os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+            "monitor_cache.db",
+        )
+        self._ensure_tables()
+
+    def _get_conn(self):
+        import sqlite3
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _ensure_tables(self):
+        conn = self._get_conn()
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS monitor_items (
+                id TEXT PRIMARY KEY,
+                platform TEXT, title TEXT, url TEXT, summary TEXT,
+                rank INTEGER, heat_score REAL, category TEXT,
+                crawled_at TEXT, engine_analysis TEXT
+            );
+            CREATE TABLE IF NOT EXISTS monitor_alerts (
+                id TEXT PRIMARY KEY,
+                narrative_type TEXT, title TEXT, description TEXT,
+                detected_items TEXT, manipulation_score REAL,
+                severity TEXT, created_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS monitor_state (
+                key TEXT PRIMARY KEY, value TEXT
+            );
+        """)
+        conn.commit()
+        conn.close()
+
+    def save_items(self, items: list):
+        conn = self._get_conn()
+        now = datetime.now(timezone.utc).isoformat()
+        for item in items:
+            conn.execute(
+                """INSERT OR REPLACE INTO monitor_items
+                (id, platform, title, url, summary, rank, heat_score, category, crawled_at, engine_analysis)
+                VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (item.id, item.platform, item.title, item.url, item.summary,
+                 item.rank, item.heat_score, item.category, now,
+                 json.dumps(item.engine_analysis, ensure_ascii=False) if item.engine_analysis else None),
+            )
+        # Clean old items (>7 days)
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        conn.execute("DELETE FROM monitor_items WHERE crawled_at < ?", (cutoff,))
+        conn.commit()
+        conn.close()
+
+    def load_items(self, limit: int = 50) -> list[dict]:
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT * FROM monitor_items ORDER BY heat_score DESC LIMIT ?", (limit,)
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    def save_state(self, key: str, value: str):
+        conn = self._get_conn()
+        conn.execute("INSERT OR REPLACE INTO monitor_state VALUES (?,?)", (key, value))
+        conn.commit()
+        conn.close()
+
+    def get_state(self, key: str) -> Optional[str]:
+        conn = self._get_conn()
+        row = conn.execute("SELECT value FROM monitor_state WHERE key=?", (key,)).fetchone()
+        conn.close()
+        return row["value"] if row else None
+
+
 class MonitorScheduler:
     """
     监控调度器 — 定时爬取热点并送入引擎分析
@@ -317,6 +397,10 @@ class MonitorScheduler:
         self.alert_manager = NarrativeAlertManager()
         self.state = MonitorState()
         self._task: Optional[asyncio.Task] = None
+        self._cached_items: list[HotItem] = []
+        self._store = PersistenceStore()
+        # 从持久化恢复
+        self._restore_state()
 
     async def run_once(self) -> list[HotItem]:
         """执行一次完整的监控周期: 爬取 → 分析 → 告警"""
@@ -328,19 +412,35 @@ class MonitorScheduler:
         self.state.last_crawl_at = datetime.now(timezone.utc)
 
         if not items:
+            self._cached_items = []
             return items
 
-        # 2. 对每条热点运行引擎分析
+        # 2. 对每条热点运行快速分析 (Quick-Check 引擎, 避免23步全管线过慢)
         analyzed = 0
         for item in items[:30]:  # 限制每次分析30条
             try:
-                from app.engine.reasoning import run_reasoning_pipeline
-                result = await run_reasoning_pipeline(
-                    url=item.url,
-                    title=item.title,
+                # 使用轻量分析 (批量场景优先速度)
+                from app.api.quick_check import _quick_analyze
+                result = _quick_analyze(
                     text=f"{item.title}\n{item.summary}",
+                    title=item.title,
+                    url=item.url,
                 )
-                item.engine_analysis = result.to_dict()
+                item.engine_analysis = {
+                    "verdict": result["verdict"],
+                    "credibility_score": result["credibility_score"],
+                    "narrative_analysis": {
+                        "dominant_narrative": (
+                            "conspiracy_theory" if any(f["type"] == "conspiracy_theory" for f in result["analysis"].get("causal", {}).get("fallacies", []))
+                            else None
+                        ),
+                        "manipulation_score": sum(s[1] for s in result["risk_signals"]),
+                    },
+                    "distortion_analysis": {
+                        "count": result["analysis"]["distortion"]["count"],
+                    },
+                    "summary": result["summary"],
+                }
                 analyzed += 1
 
                 # 3. 叙事告警检测
@@ -349,26 +449,95 @@ class MonitorScheduler:
             except Exception as e:
                 logger.debug(f"分析 {item.title[:30]}... 失败: {e}")
 
+        # 缓存结果供 API 读取
+        self._cached_items = items
         self.state.total_analyzed += analyzed
+        self.state.next_crawl_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+
+        # 持久化 — 保存最新数据到 SQLite
+        try:
+            self._store.save_items(items)
+            self._store.save_state("last_crawl_at", self.state.last_crawl_at.isoformat() if self.state.last_crawl_at else "")
+            self._store.save_state("total_crawled", str(self.state.total_crawled))
+        except Exception as e:
+            logger.debug(f"持久化保存跳过: {e}")
+
         logger.info(f"✅ 监控周期完成: 爬取{len(items)}条, 分析{analyzed}条, 活跃告警{len(self.alert_manager.get_active_alerts())}条")
         return items
 
     async def start(self, interval_minutes: int = 15):
-        """启动定时监控"""
+        """启动定时监控 — 后台循环运行"""
         if self.state.is_running:
             return
         self.state.is_running = True
         logger.info(f"监控系统已启动 (间隔: {interval_minutes}分钟)")
-        await self.run_once()  # 立即执行第一次
+
+        # 立即执行第一次
+        await self.run_once()
+
+        # 后台循环
+        async def _loop():
+            while self.state.is_running:
+                await asyncio.sleep(interval_minutes * 60)
+                if self.state.is_running:
+                    try:
+                        await self.run_once()
+                    except Exception as e:
+                        logger.error(f"监控周期异常: {e}")
+
+        self._task = asyncio.create_task(_loop())
 
     async def stop(self):
         self.state.is_running = False
         if self._task:
             self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
 
     def get_state(self) -> MonitorState:
         self.state.alerts_count = len(self.alert_manager.get_active_alerts())
         return self.state
+
+    def _restore_state(self):
+        """从 SQLite 恢复上次监控状态"""
+        try:
+            saved_items = self._store.load_items(limit=50)
+            if saved_items:
+                # Convert raw dicts back to HotItem
+                restored = []
+                for row in saved_items:
+                    item = HotItem(
+                        id=row.get("id", ""),
+                        platform=row.get("platform", ""),
+                        title=row.get("title", ""),
+                        url=row.get("url", ""),
+                        summary=row.get("summary", ""),
+                        rank=row.get("rank", 0),
+                        heat_score=row.get("heat_score", 0.0),
+                        category=row.get("category", ""),
+                        crawled_at=datetime.fromisoformat(row["crawled_at"]) if row.get("crawled_at") else None,
+                    )
+                    if row.get("engine_analysis"):
+                        try:
+                            item.engine_analysis = json.loads(row["engine_analysis"])
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                    restored.append(item)
+                self._cached_items = restored
+                logger.info(f"从持久化恢复 {len(restored)} 条监控数据")
+
+            # Restore state counters
+            tc = self._store.get_state("total_crawled")
+            if tc:
+                self.state.total_crawled = int(tc)
+            lc = self._store.get_state("last_crawl_at")
+            if lc:
+                self.state.last_crawl_at = datetime.fromisoformat(lc)
+        except Exception as e:
+            logger.debug(f"持久化恢复跳过: {e}")
 
 
 # 全局单例

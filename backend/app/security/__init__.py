@@ -285,7 +285,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
                 "script-src 'self'; "
-                "style-src 'self' 'unsafe-inline'; "
+                "style-src 'self'; "
                 "img-src 'self' data: https:; "
                 "connect-src 'self' https: wss:; "
                 "font-src 'self'; "
@@ -418,6 +418,8 @@ def verify_csrf_token(token: str) -> bool:
     if time.time() - ts > 3600:
         _csrf_tokens.pop(token, None)
         return False
+    # 一次性使用 — 验证后立即删除令牌
+    del _csrf_tokens[token]
     return True
 
 

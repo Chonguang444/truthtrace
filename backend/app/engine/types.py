@@ -222,9 +222,25 @@ class AnalysisResult:
     rumor_alert: Optional[dict] = None
     media_verification: Optional[dict] = None
     llm_analysis: Optional[dict] = None
+    # 新增引擎 (P0-P2 工具集成)
+    satyalens_score: Optional[dict] = None       # SatyaLens 引用完整性评分
+    fact_check_crossref: Optional[dict] = None   # Google Fact Check API 交叉验证
+    lmscan_detection: Optional[dict] = None      # lmscan AI文本统计特征检测
+    smellcheck_detection: Optional[dict] = None  # smellcheck AI文本指纹检测
+    critic_review: Optional[dict] = None         # Sift Critic Agent 对抗审查
+    causal_graph_result: Optional[dict] = None   # GraphRAG-Causal 因果图谱
+    correction_alternative: Optional[dict] = None # Sift Correction Agent 叙事替代
+    echo_chamber: Optional[dict] = None           # 回音壁效应检测
+    cross_lang_trace: Optional[dict] = None       # 多语言溯源
+    tech_fact_wedge: Optional[dict] = None        # 技术事实楔子
+    cost_reasoning: Optional[dict] = None         # 成本逻辑推演
 
     # 完整推理链
     reasoning_chain: list[ReasoningStep] = field(default_factory=list)
+
+    # 辟谣意图检测
+    is_debunking: bool = False                 # 内容是否为辟谣意图
+    debunking_adjustment: float = 0.0          # 因辟谣意图上调的可信度分数
 
     # 辟谣建议
     correction: str = ""
@@ -258,6 +274,19 @@ class AnalysisResult:
             "rumor_alert": self.rumor_alert,
             "media_verification": self.media_verification,
             "llm_analysis": self.llm_analysis,
+            "satyalens_score": self.satyalens_score,
+            "fact_check_crossref": self.fact_check_crossref,
+            "lmscan_detection": self.lmscan_detection,
+            "smellcheck_detection": self.smellcheck_detection,
+            "critic_review": self.critic_review,
+            "causal_graph_result": self.causal_graph_result,
+            "correction_alternative": self.correction_alternative,
+            "echo_chamber": self.echo_chamber,
+            "cross_lang_trace": self.cross_lang_trace,
+            "tech_fact_wedge": self.tech_fact_wedge,
+            "cost_reasoning": self.cost_reasoning,
+            "is_debunking": self.is_debunking,
+            "debunking_adjustment": self.debunking_adjustment,
             "reasoning_chain": [s.to_dict() for s in self.reasoning_chain],
             "correction": self.correction,
             "correction_references": self.correction_references,

@@ -130,6 +130,12 @@ class TestCSRFToken:
         tokens = [generate_csrf_token() for _ in range(10)]
         assert len(set(tokens)) == 10  # All unique
 
+    def test_csrf_token_single_use(self):
+        """验证 CSRF 令牌是一次性的 — 使用后立即失效"""
+        token = generate_csrf_token()
+        assert verify_csrf_token(token) is True   # 首次使用成功
+        assert verify_csrf_token(token) is False  # 二次使用被拒绝
+
 
 # =============================================================================
 # 恶意内容检测

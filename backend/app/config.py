@@ -47,6 +47,10 @@ class Settings(BaseSettings):
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
     ]
 
+    # Google Fact Check Tools API (第三方事实核查交叉验证)
+    google_fact_check_api_key: str = ""
+    google_fact_check_base_url: str = "https://factchecktools.googleapis.com/v1alpha1/claims:search"
+
     # NLP
     spacy_model: str = "zh_core_web_sm"
     sentence_model: str = "paraphrase-multilingual-MiniLM-L12-v2"

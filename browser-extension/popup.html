@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Truth Lens</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{width:380px;font-family:system-ui,-apple-system,sans-serif;font-size:13px;background:#fff}
+.hdr{padding:14px 16px;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff}
+.hdr h1{font-size:16px;font-weight:700}
+.hdr p{font-size:11px;opacity:.85;margin-top:2px}
+.main{padding:16px}
+#inp{width:100%;height:120px;padding:10px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;resize:vertical;font-family:inherit;line-height:1.5}
+#inp:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+#chk{width:100%;padding:10px;margin-top:8px;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
+#chk:hover{opacity:.92}
+#chk:disabled{opacity:.5;cursor:default}
+#ld{text-align:center;padding:20px;color:#6b7280;display:none}
+#err{color:#991b1b;font-size:12px;padding:8px;background:#fef2f2;border-radius:8px;display:none;margin-top:8px}
+#res{display:none;margin-top:12px}
+#res.s{display:block}
+.sr{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.ring{width:60px;height:60px;border-radius:50%;border:6px solid #e5e7eb;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.ring .n{font-size:20px;font-weight:800}
+.ring .l{font-size:8px;color:#6b7280}
+.ver{font-size:15px;font-weight:700}
+.sum{font-size:12px;padding:8px;background:#f0f9ff;border-radius:8px;line-height:1.5;margin-bottom:8px}
+.fnd{font-size:11px}
+.fl{padding:4px 8px;margin-bottom:2px;border-radius:4px;line-height:1.4}
+.fd{background:#fef2f2;color:#991b1b}
+.ff{background:#fef3c7;color:#92400e}
+.fc{background:#f3e8ff;color:#6b21a8}
+.ftr{padding:8px 16px;border-top:1px solid #e5e7eb;font-size:10px;color:#9ca3af;text-align:center}
+.ftr a{color:#2563eb}
+</style></head>
+<body>
+<div class="hdr"><h1>Truth Lens</h1><p>Real-time credibility check - 23 engine pipeline</p></div>
+<div class="main">
+  <textarea id="inp" placeholder="Paste text to check (min 10 chars)..."></textarea>
+  <button id="chk">Check Credibility</button>
+  <div id="ld">Analyzing...</div>
+  <div id="err"></div>
+  <div id="res">
+    <div class="sr">
+      <div class="ring" id="ring"><span class="n" id="sn">-</span><span class="l">score</span></div>
+      <span class="ver" id="vt"></span>
+    </div>
+    <div class="sum" id="sum"></div>
+    <div class="fnd" id="fnd"></div>
+  </div>
+</div>
+<div class="ftr">Powered by <a href="https://truthtrace.app" target="_blank">TruthTrace</a> | Right-click on any webpage text to check</div>
+<script src="popup.js"></script>
+</body>
+</html>

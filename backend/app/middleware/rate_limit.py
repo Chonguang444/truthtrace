@@ -105,6 +105,10 @@ _login_attempts: dict[str, list[float]] = defaultdict(list)
 _LOGIN_MAX_ATTEMPTS = 5
 _LOGIN_WINDOW = 60  # 60 秒窗口
 
+_register_attempts: dict[str, list[float]] = defaultdict(list)
+_REGISTER_MAX_ATTEMPTS = 3
+_REGISTER_WINDOW = 3600  # 1 小时窗口
+
 
 def check_login_rate_limit(client_ip: str) -> bool:
     """
@@ -129,4 +133,30 @@ def check_login_rate_limit(client_ip: str) -> bool:
         ]
         for ip in expired_ips:
             del _login_attempts[ip]
+    return True
+
+
+def check_register_rate_limit(client_ip: str) -> bool:
+    """
+    检查注册频率。返回 True 表示允许，False 表示超限。
+
+    每 IP 每小时最多 3 次注册 (防止批量注册攻击)。
+    """
+    now = _time.time()
+    # 清理过期记录
+    _register_attempts[client_ip] = [
+        t for t in _register_attempts[client_ip]
+        if now - t < _REGISTER_WINDOW
+    ]
+    if len(_register_attempts[client_ip]) >= _REGISTER_MAX_ATTEMPTS:
+        return False
+    _register_attempts[client_ip].append(now)
+    # 清理旧 IP 记录防止内存泄漏
+    if len(_register_attempts) > 10000:
+        expired_ips = [
+            ip for ip, attempts in _register_attempts.items()
+            if not attempts or now - max(attempts) > _REGISTER_WINDOW * 2
+        ]
+        for ip in expired_ips:
+            del _register_attempts[ip]
     return True

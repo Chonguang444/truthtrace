@@ -209,6 +209,112 @@ def _build_uncertainty_statement(
 
 
 # =============================================================================
+# Step 0: 辟谣意图检测
+# =============================================================================
+
+_DEBUNK_MARKERS_TITLE = [
+    "辟谣", "别信", "假的", "谣言", "骗人", "不实", "揭秘", "破解",
+    "真相", "辟谣", "澄清", "还原", "别被骗", "别信了", "别再传",
+    "辟谣贴", "辟谣视频", "事实核查", "打假",
+    "伪知识", "伪科普", "辟谣帖", "别再被骗", "不要再信",
+    "千万别信", "别被忽悠", "不要被骗", "这些谣言", "谣言合集",
+    "假科普", "辟谣科普", "的真相", "骗了多少人",
+]
+_DEBUNK_MARKERS_CONTENT = [
+    "但事实上", "实际上", "其实是", "其实是假的", "并非如此",
+    "真相是", "错了", "不实", "辟谣", "正确说法是",
+    "实际情况", "这是谣言", "这是假的", "这是错误",
+    "其实", "并不是", "这是误解", "误区", "错误的是",
+    "正确的", "科学的", "被误解", "真相来了",
+    "不要被误导", "别信", "醒醒吧", "别再上当",
+    "根本没有", "恰恰相反", "恰恰", "错得离谱",
+    "这才是真相", "权威解释", "专家辟谣",
+    "没有任何研究能证明", "没有任何证据表明",
+    "目前没有证据", "科学研究表明", "实际上并没有",
+    "没有任何科学依据", "纯属谣言", "完全是谣言",
+]
+
+
+def _detect_debunking_intent(title: str = "", text: str = "") -> bool:
+    """
+    检测内容是否为辟谣意图 (而非传播谣言)。
+
+    多信号加权判断:
+    1. 标题含辟谣标识词 (权重 3)
+    2. 内容前半部分含辟谣转折词 (权重 2)
+    3. 内容后半部分含辟谣总结词 (权重 1)
+    加权总分 >= 3 → 判定为辟谣内容
+    """
+    score = 0
+
+    # 标题检测
+    if title:
+        for marker in _DEBUNK_MARKERS_TITLE:
+            if marker in title:
+                score += 3
+                break
+
+    if not text:
+        return score >= 3
+
+    # 内容前半部分 (前500字) — 通常在陈述谣言后转折
+    first_half = text[:500] if len(text) > 500 else text
+    for marker in _DEBUNK_MARKERS_CONTENT[:12]:  # 转折词
+        if marker in first_half:
+            score += 2
+            break
+
+    # 内容后半部分 (后500字) — 通常在做总结和正确信息
+    if len(text) > 500:
+        second_half = text[-500:]
+        for marker in _DEBUNK_MARKERS_CONTENT[12:]:
+            if marker in second_half:
+                score += 1
+                break
+
+    # 内容级辟谣模式检测: "第X个...错误/假/辟谣" (枚举式辟谣视频的标准格式)
+    import re as _re
+    if _re.search(r'(?:第[一二三四五六七八九十\d]+[个条]|[1-9]\\.).{1,20}(?:错误|假|辟谣|不对|骗人|谣言)', text[:500]):
+        score += 3
+
+    # 特殊规则: 辟谣视频的常见开头模式
+    debunk_openings = [
+        "今天我来辟谣", "今天我们来揭秘", "关于XX的真相",
+        "你可能被骗了", "这个视频告诉你真相",
+    ]
+
+    # P0-4: 悬疑揭秘格式识别 (B站第二轮视频的主要格式)
+    # 特点: 标题含"真相/揭秘/到底/背后"，开头陈述传说/谣言（用"据说/传说/网络上流传"），
+    # 中间转折("但事实上/实际上/真相是")，结尾揭示结论
+    mystery_reveal_patterns = [
+        r'(?:真相|揭秘|到底|背后|漏洞|打假).{0,20}(?:是|到底|究竟|原来)',
+        r'(?:据说|传说|流传|传闻|网络.{0,5}传).{0,50}(?:但|然而|不过|实际上).{0,20}(?:真相|事实|其实|并)',
+    ]
+    for mp in mystery_reveal_patterns:
+        if _re.search(mp, text[:800]):
+            score += 2
+            break
+
+    # 内容开头暗示在"讲述传说/恐怖故事"而非传播谣言
+    storytelling_openers = [
+        "今天给大家讲", "今天和大家聊聊", "相信很多人都听说过",
+        "这是一个非常有名的", "今天我们来聊聊", "这是一个流传",
+    ]
+    for opener in storytelling_openers:
+        if opener[:6] in text[:300]:
+            # 后续有转折词说明在辟谣
+            if any(m in text[300:800] for m in ["但事实上", "实际上", "其实", "真相是", "然而"]):
+                score += 2
+                break
+    for opening in debunk_openings:
+        if opening[:8] in text[:200]:
+            score += 3
+            break
+
+    return score >= 3
+
+
+# =============================================================================
 # 主推理管线
 # =============================================================================
 
@@ -262,6 +368,19 @@ async def run_reasoning_pipeline(
             counter_evidence=counter_evidence or [],
             uncertainty_note=uncertainty,
         ))
+
+    # -----------------------------------------------------------------------
+    # Step 0: 意图检测 — 判断内容是"辟谣"还是"传谣"
+    # -----------------------------------------------------------------------
+    is_debunking = _detect_debunking_intent(title=title, text=text)
+
+    if is_debunking:
+        add_step(
+            "执行内容意图检测",
+            "检测到辟谣意图标志 — 内容在驳斥谣言而非传播谣言。将调整检测阈值以避免误判辟谣者为传谣者。",
+            Confidence.HIGH,
+            uncertainty="自动意图检测基于关键词模式。如有误判，人工复核即可。",
+        )
 
     # -----------------------------------------------------------------------
     # Step 1: 信息失真检测
@@ -503,6 +622,18 @@ async def run_reasoning_pipeline(
     )
 
     result.credibility_score = rigorous.credibility_score
+
+    # 辟谣意图调整: 如果检测到辟谣意图，上调可信度 +15~25 分
+    # (因为辟谣内容在陈述谣言时会被引擎误判为传谣)
+    result.is_debunking = is_debunking
+    if is_debunking:
+        adjustment = 20
+        # 如果已经在中等可信度以上，保守上调
+        if result.credibility_score >= 30:
+            adjustment = 15
+        result.credibility_score = min(100.0, result.credibility_score + adjustment)
+        result.debunking_adjustment = adjustment
+
     # Map rigorous verdict back to our Verdict enum
     rv = rigorous.verdict
     v_map = {"true": Verdict.TRUE, "likely_true": Verdict.LIKELY_TRUE,
@@ -681,6 +812,290 @@ async def run_reasoning_pipeline(
             )
     except Exception as e:
         logger.warning(f"谣言预警跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 16: SatyaLens 引用完整性评分 (新引擎 P0)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.satyalens_score import SatyaLensScorer
+        satyalens = SatyaLensScorer()
+        sl_result = satyalens.analyze(
+            text=text, title=title,
+            cited_urls=url_chain or [],
+            author_claims=(
+                domain_result.claims if domain_result else []
+            ),
+        )
+        result.satyalens_score = sl_result.to_dict()
+        if sl_result.citations_found > 0 or sl_result.red_flags:
+            add_step(
+                "SatyaLens 引用完整性评分 — 评估引用链条的可验证性",
+                f"{sl_result.summary}",
+                Confidence.HIGH if sl_result.overall_integrity_score >= 0.7 else (
+                    Confidence.MODERATE if sl_result.overall_integrity_score >= 0.4 else Confidence.LOW
+                ),
+                evidence=[Evidence(
+                    description=f"可验证引用: {sl_result.citations_verifiable}/{sl_result.citations_found} | 引用链深度: L{sl_result.citation_chain_depth}",
+                    source_url=url,
+                    quality=EvidenceQuality.HIGH if sl_result.independent_corroboration else EvidenceQuality.MEDIUM,
+                )] if sl_result.citations_found > 0 else [],
+                uncertainty=f"引用完整性评分仅评估引用可追溯性，不等于内容真实性判断。"
+                          f"{len(sl_result.red_flags)}个引用质量问题被标记。" if sl_result.red_flags else "",
+            )
+    except Exception as e:
+        logger.warning(f"SatyaLens 引用完整性引擎跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 17: Google Fact Check Tools API 交叉验证 (新引擎 P0)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.factcheck_api import FactCheckAPI
+        from app.config import get_settings
+        fc_api_key = get_settings().google_fact_check_api_key
+        if fc_api_key:
+            fc_api = FactCheckAPI(api_key=fc_api_key)
+            fc_result = await fc_api.analyze(text=text, title=title, max_queries=5)
+            result.fact_check_crossref = fc_result.to_dict()
+            if fc_result.matched_claims > 0:
+                add_step(
+                    "Google Fact Check 第三方核查数据库交叉验证",
+                    f"{fc_result.summary}",
+                    Confidence.HIGH if fc_result.matched_claims >= 2 else Confidence.MODERATE,
+                    evidence=[Evidence(
+                        description=f"[{m.rating_normalized}] {m.publisher_name}: {m.textual_rating} — {m.snippet[:100]}",
+                        source_url=m.fact_check_url,
+                        quality=EvidenceQuality.HIGH,
+                    ) for m in fc_result.matches[:5]],
+                    uncertainty="Fact Check API 结果来自第三方核查机构 (Snopes/PolitiFact等)，其结论可能受核查机构自身偏见影响。",
+                )
+            elif fc_result.api_available:
+                add_step(
+                    "Google Fact Check 第三方核查数据库交叉验证",
+                    f"未找到匹配的第三方核查结果 ({fc_result.total_claims_searched}条主张已搜索)",
+                    Confidence.LOW,
+                    uncertainty="未找到第三方核查 ≠ 信息属实。仅表示该主张尚未被主流事实核查机构覆盖。",
+                )
+        else:
+            logger.info("Google Fact Check API key 未配置，跳过 Step 17")
+    except Exception as e:
+        logger.warning(f"Fact Check API 引擎跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 18: lmscan AI 文本统计特征检测 (新引擎 P1)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.lmscan_detector import LmscanDetector
+        lmscan = LmscanDetector()
+        lmscan_result = lmscan.analyze(text=text, title=title)
+        result.lmscan_detection = lmscan_result.to_dict()
+        if lmscan_result.feature_count_flagged > 0:
+            add_step(
+                "lmscan AI 文本统计特征检测 — 12 维度统计指纹分析",
+                f"{lmscan_result.summary}",
+                Confidence.HIGH if lmscan_result.confidence == "high" else (
+                    Confidence.MODERATE if lmscan_result.confidence == "moderate" else Confidence.LOW
+                ),
+                evidence=[Evidence(
+                    description=f"[{f.name}] 得分 {f.score:.2f} (阈值 {f.threshold})"
+                    if f.flagged else f"[{f.name}] {f.detail[:80]}",
+                    source_url=url,
+                    quality=EvidenceQuality.MEDIUM if f.flagged else EvidenceQuality.LOW,
+                ) for f in lmscan_result.features if f.flagged][:5],
+                uncertainty="统计特征分析仅提供信号提示。短文本 (<200字) 结果不可靠。多检测器交叉验证后才能提高置信度。",
+            )
+    except Exception as e:
+        logger.warning(f"lmscan AI 检测引擎跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 19: smellcheck AI 文本静态指纹检测 (新引擎 P1)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.smellcheck_detector import SmellcheckDetector
+        smell = SmellcheckDetector()
+        smell_result = smell.analyze(text=text, title=title)
+        result.smellcheck_detection = smell_result.to_dict()
+        if smell_result.total_flags > 0:
+            add_step(
+                "smellcheck AI 文本静态指纹检测 — 8 类字符级指纹分析",
+                f"{smell_result.summary}",
+                Confidence.MODERATE if smell_result.anomaly_score > 30 else Confidence.LOW,
+                evidence=[Evidence(
+                    description=f"[{f.category}] {f.description[:120]}",
+                    source_url=url,
+                    quality=EvidenceQuality.HIGH if f.severity == "high" else EvidenceQuality.MEDIUM,
+                ) for f in smell_result.flags[:4]],
+                uncertainty="字符级指纹异常可能来自合法来源 (富文本编辑器、排版软件)。需结合 lmscan 统计特征交叉验证。",
+            )
+    except Exception as e:
+        logger.warning(f"smellcheck AI 指纹检测引擎跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 20: GraphRAG-Causal 因果图谱分析 (P2 — 因果链推理+谬误检测)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.causal_graph import analyze_causal_graph
+        causal_result = analyze_causal_graph(
+            text=text, title=title, url=url,
+        )
+        result.causal_graph_result = causal_result.to_dict()
+        if causal_result.total_claims > 0 or causal_result.fallacies:
+            add_step(
+                "GraphRAG-Causal 因果图谱分析 — 因果主张提取+因果谬误检测+图谱传导",
+                causal_result.summary,
+                Confidence.HIGH if causal_result.overall_causal_quality < 40 else
+                Confidence.MODERATE if causal_result.overall_causal_quality < 70 else Confidence.LOW,
+                evidence=[Evidence(
+                    description=f"因果图谱: {causal_result.total_claims}条主张, "
+                                f"{len(causal_result.graph.get('nodes', []))}节点, "
+                                f"{len(causal_result.graph.get('edges', []))}条边",
+                    source_url=url,
+                    quality=EvidenceQuality.MEDIUM,
+                )],
+                counter_evidence=[Evidence(
+                    description=f.fallacy_type,
+                    source_url=url,
+                    quality=EvidenceQuality.LOW,
+                ) for f in causal_result.fallacies[:3]],
+                uncertainty="因果推理基于文本模式匹配。因果关系需要时间顺序+机制+排除混淆变量才能确认。",
+            )
+    except Exception as e:
+        logger.warning(f"GraphRAG-Causal 因果图谱引擎跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 22: Correction Agent 叙事替代 (P2 — 辟谣替代叙事生成)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.correction_agent import generate_correction
+        # 收集已检测到的失真和谬误类型
+        detected_distortion_types = []
+        if result.distortion_analysis:
+            detected_distortion_types = [
+                m.abuse_type if hasattr(m, 'abuse_type') else m.description[:30]
+                for m in (result.distortion_analysis.matches or [])[:5]
+            ]
+        detected_fallacy_types = []
+        if result.fallacy_analysis:
+            detected_fallacy_types = [
+                m.abuse_type if hasattr(m, 'abuse_type') else m.description[:30]
+                for m in (result.fallacy_analysis.matches or [])[:5]
+            ]
+
+        correction = generate_correction(
+            original_claim=(text or "")[:500],
+            verified_facts=result.correction_references if result.correction_references else [],
+            sources=[url] if url else [],
+            distortion_types=detected_distortion_types,
+            fallacy_types=detected_fallacy_types,
+            credibility_score=result.credibility_score,
+            title=title,
+        )
+        result.correction_alternative = correction.to_dict()
+
+        # 将一句话辟谣添加到 correction 字段末尾
+        if correction.short_correction:
+            result.correction = (
+                (result.correction or "") +
+                f"\n\n[叙事替代] {correction.short_correction}"
+            )
+    except Exception as e:
+        logger.warning(f"Correction Agent 叙事替代跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 21: Sift Critic Agent 对抗审查 (P1 — 在所有引擎之后)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.llm_analyzer import run_critic_review
+        critic = run_critic_review(result.to_dict())
+        result.critic_review = critic.to_dict()
+        if critic.inter_engine_agreement < 0.5 or critic.conflicting_findings or critic.false_positive_risks:
+            add_step(
+                "Sift Critic Agent 对抗审查 — 引擎间一致性 + 误报风险评估",
+                f"{critic.reviewer_notes}",
+                Confidence.HIGH if abs(critic.confidence_adjustment) >= 10 else Confidence.MODERATE,
+                evidence=[Evidence(
+                    description=f"引擎一致性: {critic.inter_engine_agreement:.0%} | 置信度调整: {critic.confidence_adjustment:+.0f}",
+                    source_url="",
+                    quality=EvidenceQuality.MEDIUM,
+                )],
+                counter_evidence=[Evidence(
+                    description=risk,
+                    source_url="",
+                    quality=EvidenceQuality.LOW,
+                ) for risk in critic.false_positive_risks[:3]],
+                uncertainty=f"Critic Agent 审查是自动化信号分析。"
+                          f"{'发现矛盾发现需人工复核。' if critic.conflicting_findings else ''}"
+                          f"{'标记了误报风险。' if critic.false_positive_risks else ''}",
+            )
+    except Exception as e:
+        logger.warning(f"Critic Agent 审查跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 23: 回音壁效应检测 (P0 — B站视频2发现)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.echo_chamber import detect_echo_chamber
+        echo = detect_echo_chamber(
+            content_text=text,
+            references=[url] if url else [],
+        )
+        result.echo_chamber = echo.to_dict()
+        if echo.echo_chamber_detected:
+            add_step(
+                "回音壁效应检测 — 追踪引用链，检测多源是否指向同一未核实出处",
+                echo.assessment,
+                Confidence.HIGH if echo.echo_chamber_score >= 60 else Confidence.MODERATE,
+                uncertainty="回音壁检测基于文本中的引用模式。真实的信息生态比文本可检测的更复杂。",
+            )
+            # 回音壁效应 → 下调可信度
+            if echo.echo_chamber_score >= 60:
+                result.credibility_score = max(5.0, result.credibility_score - 10)
+    except Exception as e:
+        logger.warning(f"回音壁检测跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 24: 多语言溯源 (P0 — 检测是否涉及跨国信息)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.cross_lang_trace import detect_international_claim
+        intl = detect_international_claim(text)
+        result.cross_lang_trace = intl
+        if intl.get("international_entities_found"):
+            entities = [e["entity"] for e in intl["international_entities_found"][:5]]
+            add_step(
+                "多语言溯源 — 检测到涉及跨国信息",
+                f"涉及实体: {', '.join(entities)}。建议在{', '.join(intl.get('languages_recommended',[]))}语言源中交叉验证。",
+                Confidence.MODERATE,
+                uncertainty="多语言搜索基于术语映射，翻译可能不完全准确。手动查验建议搜索词。",
+            )
+    except Exception as e:
+        logger.warning(f"多语言溯源跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 25: 技术事实楔子 (P0 — 基于科学原理的不可辩驳事实)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.correction_agent import generate_tech_fact_wedge, generate_cost_reasoning
+        tech_wedge = generate_tech_fact_wedge(text)
+        cost_logic = generate_cost_reasoning(text)
+        result.tech_fact_wedge = tech_wedge
+        result.cost_reasoning = cost_logic
+        if tech_wedge.get("matched"):
+            add_step(
+                f"技术事实楔子 — 基于{tech_wedge.get('category','科学')}原理的不可辩驳事实",
+                tech_wedge.get("wedge", "")[:200],
+                Confidence.HIGH,
+                evidence=[Evidence(description=f"来源: {tech_wedge.get('source','')}", source_url="", quality=EvidenceQuality.HIGH)],
+                uncertainty="技术事实基于公认的科学原理，但具体应用场景需要专业判断。",
+            )
+        if cost_logic.get("matched"):
+            add_step(
+                "成本逻辑推演 — 用经济常识击穿商业谣言",
+                cost_logic.get("logic", "")[:200],
+                Confidence.HIGH,
+                uncertainty="成本数据基于市场价格估算，实际价格可能因地域/时间波动。",
+            )
+    except Exception as e:
+        logger.warning(f"技术事实楔子跳过: {e}")
 
     try:
         from app.evolution.calibrator import get_calibrator

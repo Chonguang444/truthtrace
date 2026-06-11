@@ -2,6 +2,7 @@
 JWT 令牌生成和验证
 """
 
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -27,16 +28,31 @@ import os
 import secrets as _secrets
 
 SECRET_KEY = getattr(settings, "jwt_secret_key", None) or os.environ.get("JWT_SECRET_KEY")
-_DEFAULT_DEV_KEY = "truthtrace-dev-secret-change-in-production"
 
-if SECRET_KEY == _DEFAULT_DEV_KEY:
-    raise RuntimeError(
-        "禁止使用默认的 JWT 开发密钥启动服务。\n"
-        "请设置环境变量 JWT_SECRET_KEY 为一个随机生成的安全密钥。\n"
-        "可以用: python -c \"import secrets; print(secrets.token_urlsafe(64))\"\n"
-        "将此输出添加到 .env: JWT_SECRET_KEY=<生成的密钥>"
-    )
-elif SECRET_KEY is None or SECRET_KEY == "":
+# 可预测的弱密钥模式 — 防止开发者使用占位符密钥
+_WEAK_KEY_PATTERNS = [
+    r"^truthtrace-dev-",          # 预定开发模式
+    r"^dev-",                     # 通用 dev 前缀
+    r"^test-",                    # 测试密钥
+    r"^changeme",                 # 占位符
+    r"^secret",                   # 通用 secret 词
+    r"^your-",                    # 模板占位符
+    r"^please-change",            # 英文占位符
+    r"^(12345|abcde|password)",   # 玩具密钥
+]
+
+
+def _is_weak_key(key: str) -> bool:
+    """检测密钥是否为可预测的弱密钥"""
+    if len(key) < 32:
+        return True  # HS256 需要至少 256-bit 密钥 (32 bytes)
+    for pattern in _WEAK_KEY_PATTERNS:
+        if re.match(pattern, key, re.IGNORECASE):
+            return True
+    return False
+
+
+if SECRET_KEY is None or SECRET_KEY == "":
     # 开发环境: 生成随机临时密钥 (每次重启令牌失效 — 仅影响开发体验)
     SECRET_KEY = _secrets.token_urlsafe(64)
     import warnings
@@ -46,6 +62,14 @@ elif SECRET_KEY is None or SECRET_KEY == "":
         "设置方法: 在 .env 中添加 JWT_SECRET_KEY=<随机64位安全密钥>\n"
         "所有现有令牌将在下次重启后失效。",
         RuntimeWarning,
+    )
+elif _is_weak_key(SECRET_KEY):
+    raise RuntimeError(
+        "检测到弱 JWT 密钥，拒绝启动。\n"
+        "请设置环境变量 JWT_SECRET_KEY 为一个随机生成的安全密钥。\n"
+        "可以用: python -c \"import secrets; print(secrets.token_urlsafe(64))\"\n"
+        "将此输出添加到 .env: JWT_SECRET_KEY=<生成的密钥>\n"
+        f"当前密钥长度: {len(SECRET_KEY)} 字符 (需要至少 32 字符)"
     )
 ALGORITHM = getattr(settings, "jwt_algorithm", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = getattr(settings, "jwt_access_expire_minutes", 60 * 24)

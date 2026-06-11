@@ -57,6 +57,9 @@ class BountyRequest(BaseModel):
     def valid_url(cls, v: str) -> str:
         if not v.startswith(("http://", "https://")):
             raise ValueError("URL 必须以 http:// 或 https:// 开头")
+        from app.security import validate_url_safe
+        if not validate_url_safe(v):
+            raise ValueError("URL 不安全 (不允许内网地址或私有 IP)")
         return v
 
 

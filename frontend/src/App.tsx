@@ -1,17 +1,19 @@
 import { BrowserRouter, Routes, Route, Link, useLocation, useNavigate } from "react-router-dom";
+import { Suspense, lazy } from "react";
 import { Home } from "./pages/Home";
 import { Search } from "./pages/Search";
 import { EventDetail } from "./pages/EventDetail";
-import { TraceReport } from "./pages/TraceReport";
 import { RumorSquare } from "./pages/RumorSquare";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { Admin } from "./pages/Admin";
-import LiteracyAcademy from "./pages/LiteracyAcademy";
-import SituationalAwareness from "./pages/SituationalAwareness";
-import CommunityHub from "./pages/CommunityHub";
-import DebunkStudio from "./pages/DebunkStudio";
-import DeveloperPortal from "./pages/DeveloperPortal";
+// Lazy-loaded heavy pages – only fetched when navigated to
+const TraceReport = lazy(() => import("./pages/TraceReport").then(m => ({ default: m.TraceReport })));
+const LiteracyAcademy = lazy(() => import("./pages/LiteracyAcademy"));
+const SituationalAwareness = lazy(() => import("./pages/SituationalAwareness"));
+const CommunityHub = lazy(() => import("./pages/CommunityHub"));
+const DebunkStudio = lazy(() => import("./pages/DebunkStudio"));
+const DeveloperPortal = lazy(() => import("./pages/DeveloperPortal"));
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useTheme } from "./hooks/useTheme";
 import { LanguageSwitcher } from "./components/LanguageSwitcher";
@@ -282,21 +284,23 @@ export default function App() {
           <NavBar />
           <ErrorBoundary>
             <main className="flex-1">
-              <Routes>
-                <Route path="/" element={<Home />} />
-                <Route path="/search" element={<Search />} />
-                <Route path="/events/:eventId" element={<EventDetail />} />
-                <Route path="/events/:eventId/report" element={<TraceReport />} />
-                <Route path="/rumors" element={<RumorSquare />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/register" element={<Register />} />
-                <Route path="/admin" element={<Admin />} />
-                <Route path="/academy" element={<LiteracyAcademy />} />
-                <Route path="/situational" element={<SituationalAwareness />} />
-                <Route path="/community" element={<CommunityHub />} />
-                <Route path="/studio" element={<DebunkStudio />} />
-                <Route path="/developer" element={<DeveloperPortal />} />
-              </Routes>
+              <Suspense fallback={<div className="flex items-center justify-center py-20"><div className="h-8 w-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" /></div>}>
+                <Routes>
+                  <Route path="/" element={<Home />} />
+                  <Route path="/search" element={<Search />} />
+                  <Route path="/events/:eventId" element={<EventDetail />} />
+                  <Route path="/events/:eventId/report" element={<TraceReport />} />
+                  <Route path="/rumors" element={<RumorSquare />} />
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/register" element={<Register />} />
+                  <Route path="/admin" element={<Admin />} />
+                  <Route path="/academy" element={<LiteracyAcademy />} />
+                  <Route path="/situational" element={<SituationalAwareness />} />
+                  <Route path="/community" element={<CommunityHub />} />
+                  <Route path="/studio" element={<DebunkStudio />} />
+                  <Route path="/developer" element={<DeveloperPortal />} />
+                </Routes>
+              </Suspense>
             </main>
           </ErrorBoundary>
           <footer className="border-t py-6 text-center text-sm text-muted-foreground">

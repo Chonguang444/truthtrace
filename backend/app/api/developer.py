@@ -47,6 +47,9 @@ class WebhookRegisterRequest(BaseModel):
     def valid_url(cls, v: str) -> str:
         if not v.startswith(("http://", "https://")):
             raise ValueError("Webhook URL 必须以 http:// 或 https:// 开头")
+        from app.security import validate_url_safe
+        if not validate_url_safe(v):
+            raise ValueError("Webhook URL 不安全 (不允许内网地址)")
         return v
 
 

@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.models.base import engine, Base
 from app.api import search, events, trace, rumors, stats, auth, ws, export, monitor, admin, feedback, reporting, video, system
-from app.api import literacy, situational, community, debunk_studio, vertical_medical, developer
+from app.api import literacy, situational, community, debunk_studio, vertical_medical, developer, quick_check, analytics, detectzoo
 from app.middleware.rate_limit import setup_rate_limit, get_limiter
 from app.security import SecurityHeadersMiddleware
 
@@ -79,7 +79,21 @@ async def lifespan(app: FastAPI):
         await start_collector()
     except Exception as e:
         logger.warning(f"AutoCollector 启动跳过: {e}")
+    # 启动监控定时调度 (每15分钟爬取热搜+分析+告警)
+    try:
+        from app.monitor.hotspot_monitor import monitor_scheduler
+        if settings.debug:
+            # 开发环境: 不自动启动(避免频繁调用)
+            logger.info("开发模式: 监控调度器不自动启动 (可通过 POST /api/monitor/crawl 手动触发)")
+        else:
+            await monitor_scheduler.start(interval_minutes=15)
+    except Exception as e:
+        logger.warning(f"监控调度器启动跳过: {e}")
     yield
+    try:
+        await monitor_scheduler.stop()
+    except Exception:
+        pass
     try:
         await stop_collector()
     except Exception:
@@ -183,6 +197,9 @@ app.include_router(community.router, prefix="/api", tags=["协作众包"])
 app.include_router(debunk_studio.router, prefix="/api", tags=["辟谣工坊"])
 app.include_router(vertical_medical.router, prefix="/api", tags=["医疗垂直"])
 app.include_router(developer.router, prefix="/api", tags=["API平台"])
+app.include_router(quick_check.router, prefix="/api", tags=["快速检测"])
+app.include_router(analytics.router, prefix="/api", tags=["效果追踪"])
+app.include_router(detectzoo.router, prefix="/api", tags=["跨库共享"])
 
 
 # --- 核心端点 ---

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, and_, func, text, String, case, desc
 from sqlalchemy.orm import selectinload
 
+from app.security import require_safe_url
 from app.models.base import get_db
 from app.models.event import Event, Source, EventStatus
 
@@ -306,7 +307,7 @@ async def trending_events(
 
 @router.get("/search/url")
 async def search_by_url(
-    url: str = Query(..., description="要追溯的 URL"),
+    url: str = Depends(require_safe_url),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -315,9 +316,6 @@ async def search_by_url(
     查找包含指定 URL 的事件和来源。
     使用 URL 规范化匹配（忽略 http/https、www 差异）。
     """
-    from app.security import validate_url_safe
-    if not validate_url_safe(url):
-        raise HTTPException(400, "URL 不安全或不允许")
     from urllib.parse import urlparse
 
     def normalize_url(u: str) -> str:

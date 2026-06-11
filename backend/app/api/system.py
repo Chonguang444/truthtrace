@@ -10,6 +10,7 @@ from sqlalchemy import select, func
 from app.auth.jwt import get_current_active_user, get_admin_user
 from app.models.user import User
 from app.models.base import get_db
+from app.security import require_safe_url
 
 router = APIRouter()
 
@@ -209,13 +210,9 @@ async def quality_dashboard():
 
 
 @router.get("/system/quality/check-source")
-async def check_source_quality(url: str = Query(..., description="要检测的URL")):
+async def check_source_quality(url: str = Depends(require_safe_url)):
     """检查来源质量"""
-    from app.security import validate_url_safe
     from app.quality import SourceQualityEvaluator
-    is_safe = validate_url_safe(url)
-    if not is_safe:
-        return {"url": url, "safe": False, "reason": "URL不在安全范围内"}
     quality = SourceQualityEvaluator.evaluate(url)
     return {"url": url, "safe": True, **quality}
 

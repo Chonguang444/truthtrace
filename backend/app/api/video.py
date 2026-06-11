@@ -2,9 +2,10 @@
 视频平台分析 API — 抖音/快手/B站视频溯源分析
 """
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Depends
 from pydantic import BaseModel
 from app.crawler.video_platforms import analyze_video_url, identify_video_platform
+from app.security import require_safe_url
 
 router = APIRouter()
 
@@ -25,11 +26,8 @@ async def analyze_video(req: VideoTraceRequest):
 
 
 @router.get("/video/detect")
-async def detect_platform(url: str = Query(..., description="视频 URL")):
+async def detect_platform(url: str = Depends(require_safe_url)):
     """检测视频URL的平台类型"""
-    from app.security import validate_url_safe
-    if not validate_url_safe(url):
-        raise HTTPException(400, "URL 不安全或不允许")
     platform = identify_video_platform(url)
     return {
         "url": url,

@@ -144,6 +144,7 @@ class SubscriptionRequest(BaseModel):
 async def register(
     req: RegisterRequest,
     response: Response,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -151,6 +152,15 @@ async def register(
 
     创建新用户账号，返回 JWT 访问令牌并通过 httpOnly Cookie 持久化。
     """
+    # 注册频率限制 (防批量注册)
+    from app.middleware.rate_limit import check_register_rate_limit
+    client_ip = request.client.host if request.client else "unknown"
+    if not check_register_rate_limit(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="注册请求过于频繁，请稍后再试",
+        )
+
     # 检查用户名/邮箱是否已存在
     existing = await db.execute(
         select(User).where(
@@ -282,7 +292,9 @@ async def refresh_token_endpoint(
 
 
 @router.get("/auth/csrf-token")
-async def get_csrf_token():
+async def get_csrf_token(
+    current_user: User = Depends(get_current_active_user),
+):
     """获取 CSRF 保护令牌 (用于 SPA 的追加防护)"""
     from app.security import generate_csrf_token
     token = generate_csrf_token()

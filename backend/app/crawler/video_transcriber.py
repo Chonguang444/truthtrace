@@ -266,10 +266,22 @@ class WhisperEngine:
 
     def transcribe(self, wav_path: str) -> tuple[str, list[dict], str, float]:
         model = self._get_model()
+        # 领域术语注入 — 防止辟谣/科学关键词在Whisper转录中被转错
+        # P0修复: 基础辟谣术语
+        # P1扩展: 粤语/方言地名机构名 (B站第二轮视频7发现)
+        _TERM_PROMPT = (
+            "辟谣 谣言 溯源 证据 来源 数据 研究 论文 科学 实验 证明 "
+            "专家 权威 机构 眼镜王蛇 巢穴 枯枝落叶 红外线 辐射 丧尸 热成像 "
+            "联合国 教科文组织 UNESCO 非物质文化遗产 韩国 申遗 "
+            "香港 九龙 新界 高陞戏院 差馆 西环 湾仔 油麻地 深水埗 旺角 铜锣湾 "
+            "俄罗斯 赤塔 西伯利亚 莫斯科 乌克兰 基辅 切尔诺贝利 "
+            "都市传说 灵异 照片 辟谣 真相 溯源 打假 揭秘"
+        )
         segments_iter, info = model.transcribe(
             wav_path,
             language=TRANSCRIBE_CONFIG["language"] or None,
             beam_size=5, vad_filter=True,
+            initial_prompt=_TERM_PROMPT,
         )
         segments = []
         parts = []
