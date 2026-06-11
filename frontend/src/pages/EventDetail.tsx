@@ -3,7 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import {
   Loader2, AlertCircle, Clock, Globe, User, BarChart3,
   ArrowLeft, ExternalLink, FileText, Shield, TrendingUp,
-  Heart, Download, FileSpreadsheet, BookmarkCheck,
+  Heart, Download, FileSpreadsheet, BookmarkCheck, Layers, Share2, Copy,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useApi, useFavorites, useExport } from "../hooks/useApi";
@@ -14,6 +14,9 @@ import { FactCheckBadge } from "../components/FactCheckBadge";
 import { EventTimeline } from "../components/EventTimeline";
 import { SourceCard } from "../components/SourceCard";
 import { CredibilityGauge } from "../components/CredibilityGauge";
+import { AnalysisDashboard } from "../components/AnalysisDashboard";
+import { CausalGraphCard } from "../components/CausalGraphCard";
+import { CorrectionPanel } from "../components/CorrectionPanel";
 import { LoadingState, ErrorState } from "../components/Status";
 import { formatDate, verdictLabel } from "../lib/utils";
 
@@ -24,7 +27,7 @@ export function EventDetail() {
   const { data: event, loading, error, request } = useApi<any>();
   const { add: addFav, remove: removeFav, data: favData, request: favReq } = useFavorites();
   const { exportSourcesCSV, exportReportPDF } = useExport();
-  const [activeTab, setActiveTab] = useState<"overview" | "graph" | "timeline" | "sources">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "analysis" | "graph" | "timeline" | "sources">("overview");
   const [graphVersion, setGraphVersion] = useState<"v1" | "v2">("v2");
   const [graphData, setGraphData] = useState<any>(null);
   const [timelineData, setTimelineData] = useState<any>(null);
@@ -110,6 +113,7 @@ export function EventDetail() {
 
   const tabs = [
     { id: "overview" as const, label: t("event.overview"), icon: BarChart3 },
+    { id: "analysis" as const, label: "引擎分析", icon: Layers },
     { id: "graph" as const, label: t("event.propagation_graph"), icon: TrendingUp },
     { id: "timeline" as const, label: t("event.timeline"), icon: Clock },
     { id: "sources" as const, label: t("event.sources"), icon: Globe },
@@ -367,6 +371,18 @@ export function EventDetail() {
           </div>
         )}
 
+        {activeTab === "analysis" && analysisData && (
+          <div className="space-y-4">
+            <AnalysisDashboard analysis={analysisData.analysis || analysisData} />
+            {analysisData.analysis?.causal_graph_result && (
+              <CausalGraphCard data={analysisData.analysis.causal_graph_result} />
+            )}
+            {analysisData.analysis?.correction_alternative && (
+              <CorrectionPanel data={analysisData.analysis.correction_alternative} compact />
+            )}
+          </div>
+        )}
+
         {activeTab === "graph" && (
           <div className="p-6 rounded-lg border bg-card">
             <div className="flex items-center justify-between mb-4">
@@ -430,6 +446,40 @@ export function EventDetail() {
               </div>
             )}
           </div>
+        )}
+      </div>
+
+      {/* Floating Action Bar */}
+      <div className="fixed bottom-6 right-6 z-30 flex flex-col gap-2 print:hidden">
+        {eventId && (
+          <>
+            <button
+              onClick={() => navigator.clipboard.writeText(JSON.stringify(
+                { "@context": "https://schema.org", "@type": "ClaimReview", "claimReviewed": event?.title || "", "reviewRating": { "@type": "Rating", "ratingValue": event?.credibility_score || 50, "alternateName": event?.rumor_verdict || "unverifiable" }, "url": `${window.location.origin}/events/${eventId}/report` }
+              , null, 2))}
+              className="w-12 h-12 rounded-full bg-white dark:bg-gray-800 shadow-lg border flex items-center justify-center hover:bg-primary/5 transition-colors group"
+              title="复制 ClaimReview JSON-LD"
+            >
+              <Copy size={18} className="text-muted-foreground group-hover:text-primary" />
+            </button>
+            <button
+              onClick={() => {
+                const text = event?.title ? `TruthTrace: ${event.title} — 可信度 ${event.credibility_score}/100\n${window.location.origin}/events/${eventId}/report` : "";
+                navigator.clipboard.writeText(text);
+              }}
+              className="w-12 h-12 rounded-full bg-white dark:bg-gray-800 shadow-lg border flex items-center justify-center hover:bg-primary/5 transition-colors group"
+              title="复制分享文本"
+            >
+              <Share2 size={18} className="text-muted-foreground group-hover:text-primary" />
+            </button>
+            <Link
+              to={`/events/${eventId}/report`}
+              className="w-12 h-12 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors"
+              title="查看溯源报告"
+            >
+              <FileText size={18} />
+            </Link>
+          </>
         )}
       </div>
     </div>
