@@ -1219,22 +1219,21 @@ async def run_reasoning_pipeline(
     # Step 28: 多领域专家知识库查询 (expert_kb)
     # -----------------------------------------------------------------------
     try:
-        from app.engine.expert_kb import query_expert_kb
-        kb_result = query_expert_kb(
-            text=text, title=title,
-            domain_narrowing=True, max_results=5,
-        )
-        if kb_result and kb_result.get("matches"):
-            result.expert_kb = kb_result
+        from app.engine.expert_kb import query_expert_kb, identify_expert_domains
+        kb_list = query_expert_kb(text=text, domain=None)
+        domains = identify_expert_domains(text)
+        if kb_list:
+            kb_data = {"matches": kb_list[:5], "domains_matched": domains}
+            result.expert_kb = kb_data
             add_step(
                 "多领域专家知识库交叉验证",
-                f"在{len(kb_result.get('domains_matched', []))}个领域中匹配到{len(kb_result['matches'])}条相关知识",
+                f"在{len(domains)}个领域中匹配到{len(kb_list)}条相关知识",
                 Confidence.MODERATE,
                 evidence=[Evidence(
-                    description=f"[{m.get('domain', '')}] {m.get('concept', '')}: {m.get('knowledge', '')[:120]}",
-                    source_url=m.get('source_url', url),
-                    quality=EvidenceQuality.HIGH,
-                ) for m in kb_result["matches"][:3]],
+                    description=f"[{m.get('domain', '')}] relevance={m.get('relevance', 0):.1f} — {str(m.get('entry', {}))[:120]}",
+                    source_url="",
+                    quality=EvidenceQuality.HIGH if m.get('relevance', 0) > 2 else EvidenceQuality.MEDIUM,
+                ) for m in kb_list[:3]],
                 uncertainty="专家知识库提供领域常识参考，不替代实时核查。",
             )
     except Exception as e:
@@ -1405,7 +1404,7 @@ async def run_reasoning_pipeline(
             lifecycle_result.survival_rank,
             Confidence.MODERATE,
             evidence=[Evidence(
-                description=f"诞生→潜伏→放大→高峰({lifecycle_result.peak_reach:,}人)→辟谣({lifecycle_result.time_to_debunk_hours:.0f}h)→衰退 | 辟谣效果{lifecycle_result.debuff_effectiveness:.0%}",
+                description=f"诞生→潜伏→放大→高峰({lifecycle_result.peak_reach:,}人)→辟谣({lifecycle_result.time_to_debunk_hours:.0f}h)→衰退 | 辟谣效果{lifecycle_result.debunk_effectiveness:.0%}",
                 source_url="",
                 quality=EvidenceQuality.MEDIUM,
             )],
