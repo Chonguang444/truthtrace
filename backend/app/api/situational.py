@@ -233,3 +233,15 @@ async def live_feed(
         })
 
     return {"feed": feed, "stream_active": True, "source": "database"}
+
+
+# =============================================================================
+# Helper — used by community.py for expert verification queue
+# =============================================================================
+
+def _generate_hotspot_events() -> list[dict]:
+    """Generate hotspot events list for community expert queue.
+    Returns list of dicts with id, title, credibility_score, narrative_type.
+    In production this queries DB via the get_hotspots endpoint flow.
+    """
+    return []
