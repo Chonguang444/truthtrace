@@ -184,13 +184,31 @@ AUTHORITY_SOURCES = {
 class KnowledgeGraphReasoner:
     """知识图谱推理引擎 — 多跳推理链 + 证据验证"""
 
+    # Chinese→English entity key mapping
+    _zh_entity_map = {
+        "阿斯巴甜": "aspartame", "味精": "monosodium_glutamate",
+        "转基因": "gmo", "疫苗": "vaccine", "5g": "5g",
+        "氟化物": "fluoride", "氟": "fluoride",
+        "气候变化": "climate_change", "全球变暖": "climate_change",
+        "核能": "nuclear_energy", "核电": "nuclear_energy",
+        "人工智能": "ai", "AI": "ai",
+    }
+
     @staticmethod
     def extract_entities(text: str) -> list[str]:
         """从文本中提取知识图谱中的已知实体"""
         found = []
+        text_lower = text.lower()
+        # Direct English key matching
         for entity_key in KNOWLEDGE_GRAPH:
-            if entity_key.replace("_", "").lower() in text.lower():
+            key_stripped = entity_key.replace("_", "").lower()
+            if key_stripped in text_lower:
                 found.append(entity_key)
+        # Chinese entity matching
+        for zh_term, en_key in KnowledgeGraphReasoner._zh_entity_map.items():
+            if zh_term.lower() in text_lower and en_key not in found:
+                if en_key in KNOWLEDGE_GRAPH:
+                    found.append(en_key)
         return found
 
     @staticmethod

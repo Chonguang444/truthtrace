@@ -95,7 +95,7 @@ services:
     build:
       context: ./backend
       dockerfile: ../deploy/Dockerfile.backend
-    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4 --time-limit=600 --soft-time-limit=540 --max-tasks-per-child=50
     environment:
       - DATABASE_URL=postgresql+asyncpg://truthtrace:${DB_PASSWORD}@postgres:5432/truthtrace
       - REDIS_URL=redis://redis:6379/0

@@ -2,16 +2,74 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="TruthTrace - 平浪散暴平台，溯源辟谣，寻找真相" />
+
+    <!-- Primary Meta -->
+    <title>TruthTrace 平浪散暴 — 追溯每一条信息的源头</title>
+    <meta name="description" content="TruthTrace 是全球最完整的开源信息溯源与事实核查平台。输入任何网络链接，系统通过 39 步推理管线（27 引擎）自动追溯信息源头，分析传播链路，识别谣言，生成辟谣报告。" />
+    <meta name="keywords" content="事实核查,谣言溯源,辟谣,网络信息验证,溯源平台,fake news detection,fact checking,AI辟谣,信息可信度" />
+    <meta name="author" content="Chonguang444" />
+    <meta name="robots" content="index, follow" />
     <meta name="theme-color" content="#2563eb" />
+
+    <!-- Open Graph (Facebook, LinkedIn, etc.) -->
+    <meta property="og:title" content="TruthTrace 平浪散暴 — 追溯每一条信息的源头" />
+    <meta property="og:description" content="全球最完整的开源信息溯源与事实核查平台。39步推理管线，27引擎，8语言支持，332测试零回归。输入链接→追溯源头→分析传播→辟谣报告。" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://truthtrace.app" />
+    <meta property="og:image" content="https://truthtrace.app/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="TruthTrace - 平浪散暴平台" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:site_name" content="TruthTrace" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="TruthTrace 平浪散暴 — 追溯每一条信息的源头" />
+    <meta name="twitter:description" content="全球最完整的开源信息溯源与事实核查平台。27引擎/39步管线/8语言。" />
+    <meta name="twitter:image" content="https://truthtrace.app/og-image.png" />
+    <meta name="twitter:site" content="@truthtrace" />
+
+    <!-- PWA -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="TruthTrace" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
-    <title>TruthTrace - 平浪散暴</title>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
+
+    <!-- Canonical -->
+    <link rel="canonical" href="https://truthtrace.app" />
+
+    <!-- Structured Data (JSON-LD) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "TruthTrace — 平浪散暴",
+      "url": "https://truthtrace.app",
+      "description": "全球最完整的开源信息溯源与事实核查平台",
+      "applicationCategory": "NewsApplication",
+      "operatingSystem": "Web",
+      "author": {
+        "@type": "Person",
+        "name": "Chonguang444",
+        "url": "https://github.com/Chonguang444"
+      },
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "CNY"
+      },
+      "browserRequirements": "Requires JavaScript"
+    }
+    </script>
   </head>
   <body class="bg-background text-foreground antialiased">
     <div id="root"></div>
