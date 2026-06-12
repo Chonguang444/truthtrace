@@ -46,3 +46,5 @@ backend/monitor_cache.db-journal
 backend/_search_bili.py
 scripts/__pycache__/
 *.pid
+
+.vercel
