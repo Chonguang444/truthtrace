@@ -20,10 +20,21 @@ from app.models.user import User
 settings = get_settings()
 
 # --- 密码哈希 (bcrypt — 抗GPU加速攻击) ---
+# bcrypt 懒加载: Render 免费层无 Rust 编译器时回退到 hashlib.pbkdf2_hmac
 # 直接使用 bcrypt 而非 passlib (passlib 已停止维护，与新版 bcrypt 不兼容)
-import bcrypt as _bcrypt
-
+_bcrypt = None
 _BCRYPT_ROUNDS = 12  # 成本因子 (12 = ~0.3s/hash)
+_PBKDF2_ITERATIONS = 600_000  # OWASP 2025 推荐 pbkdf2 迭代数
+
+def _get_bcrypt():
+    global _bcrypt
+    if _bcrypt is None:
+        try:
+            import bcrypt as _mod
+            _bcrypt = _mod
+        except ImportError:
+            pass
+    return _bcrypt
 
 # --- JWT 配置 ---
 import os
@@ -83,23 +94,44 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=Fals
 # --- 密码工具 ---
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """验证密码 (bcrypt — 自动截断 >72 字节)"""
-    password_bytes = plain_password.encode("utf-8")
-    if len(password_bytes) > 72:
-        password_bytes = password_bytes[:72]
+    """验证密码 — 优先 bcrypt，回退 hashlib.pbkdf2_hmac"""
+    bc = _get_bcrypt()
+    if bc is not None:
+        try:
+            password_bytes = plain_password.encode("utf-8")
+            if len(password_bytes) > 72:
+                password_bytes = password_bytes[:72]
+            return bc.checkpw(password_bytes, hashed_password.encode("utf-8"))
+        except Exception:
+            pass
+    # Fallback: pbkdf2_hmac (OWASP 推荐的 bcrypt 替代)
+    import hashlib
     try:
-        return _bcrypt.checkpw(password_bytes, hashed_password.encode("utf-8"))
+        parts = hashed_password.split("$")
+        if len(parts) == 4 and parts[0] == "pbkdf2":
+            salt = bytes.fromhex(parts[2])
+            expected = bytes.fromhex(parts[3])
+            dk = hashlib.pbkdf2_hmac("sha256", plain_password.encode("utf-8"), salt, _PBKDF2_ITERATIONS)
+            return dk == expected
     except Exception:
-        return False
+        pass
+    return False
 
 
 def hash_password(password: str) -> str:
-    """哈希密码 (bcrypt, cost=12 — 自动截断 >72 字节)"""
-    password_bytes = password.encode("utf-8")
-    if len(password_bytes) > 72:
-        password_bytes = password_bytes[:72]
-    salt = _bcrypt.gensalt(rounds=_BCRYPT_ROUNDS)
-    return _bcrypt.hashpw(password_bytes, salt).decode("utf-8")
+    """哈希密码 — 优先 bcrypt，回退 hashlib.pbkdf2_hmac"""
+    bc = _get_bcrypt()
+    if bc is not None:
+        password_bytes = password.encode("utf-8")
+        if len(password_bytes) > 72:
+            password_bytes = password_bytes[:72]
+        salt = bc.gensalt(rounds=_BCRYPT_ROUNDS)
+        return bc.hashpw(password_bytes, salt).decode("utf-8")
+    # Fallback: pbkdf2_hmac (OWASP 推荐)
+    import hashlib, os as _os
+    salt = _os.urandom(32)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, _PBKDF2_ITERATIONS)
+    return f"pbkdf2${salt.hex()}${dk.hex()}"
 
 
 # --- JWT 工具 ---

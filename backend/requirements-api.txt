@@ -1,9 +1,8 @@
-# TruthTrace API — 最小生产依赖 (Render 免费层 512MB)
-# 仅包含 API 启动必须的包。Celery/Redis/Pillow/lxml 均为懒加载。
+# TruthTrace API — 最小生产依赖 v5 (纯 Python 优先，避免 Rust/C 编译)
 
-# Web 框架
+# Web 框架 (不带 [standard] 扩展，避免 httptools/uvloop 等 C 扩展)
 fastapi==0.115.0
-uvicorn[standard]==0.30.6
+uvicorn==0.30.6
 pydantic==2.9.2
 pydantic-settings==2.5.2
 
@@ -12,20 +11,19 @@ sqlalchemy[asyncio]==2.0.35
 asyncpg==0.29.0
 alembic==1.13.2
 
-# 爬虫 (httpx+bs4 — lxml 可选)
+# 爬虫
 httpx==0.27.2
 beautifulsoup4==4.12.3
 
-# NLP (jieba 被 entity.py/event_extractor.py/search.py 模块级导入)
+# NLP
 jieba==0.42.1
 
-# 工具 (loguru 被数十个模块级导入)
+# 工具
 python-multipart==0.0.9
 loguru==0.7.2
 
-# 认证 (jwt.py 直接 import bcrypt)
-python-jose[cryptography]==3.3.0
-bcrypt==4.0.1
-
 # 速率限制
 slowapi==0.1.9
+
+# 认证 (python-jose 带回 — cryptography 有预编译 wheel)
+python-jose[cryptography]==3.3.0
