@@ -1,3 +1,28 @@
-# TruthTrace API — 逐步排查 v6 (绝对最小)
+# TruthTrace API — 最小生产依赖 v6 (全部纯 Python 或预编译 wheel)
+# 无 Rust/C 编译需求，适配 Render 免费层
+
+# Web 框架
 fastapi==0.115.0
 uvicorn==0.30.6
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# 数据库 (asyncpg/sqlalchemy 有预编译 wheel)
+sqlalchemy[asyncio]==2.0.35
+asyncpg==0.29.0
+alembic==1.13.2
+
+# 爬虫
+httpx==0.27.2
+beautifulsoup4==4.12.3
+
+# NLP (纯 Python)
+jieba==0.42.1
+
+# 工具 (全部纯 Python)
+python-multipart==0.0.9
+loguru==0.7.2
+slowapi==0.1.9
+
+# 认证 — PyJWT 纯 Python (无需 Rust, 比 python-jose+cryptography 轻 100 倍)
+PyJWT==2.10.1
