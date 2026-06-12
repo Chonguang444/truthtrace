@@ -10,13 +10,13 @@ class Settings(BaseSettings):
     # 应用
     app_name: str = "TruthTrace - 平浪散暴"
     app_version: str = "0.1.0"
-    debug: bool = True
+    debug: bool = False
 
     # 安全
-    jwt_secret_key: str = ""  # 空值触发自动生成 — 生产环境必须显式设置
+    jwt_secret_key: str = ""  # 必须通过环境变量 JWT_SECRET_KEY 设置 (python -c "import secrets; print(secrets.token_urlsafe(64))")
     jwt_algorithm: str = "HS256"
-    jwt_access_expire_minutes: int = 60 * 24  # 24 hours
-    jwt_refresh_expire_days: int = 30
+    jwt_access_expire_minutes: int = 30  # 30 minutes (best practice)
+    jwt_refresh_expire_days: int = 7
 
     # CORS (逗号分隔的允许域名，或 JSON 数组。留空使用 localhost 默认值)
     cors_origins: str = ""  # e.g. "https://app.vercel.app,https://www.example.com"
@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""  # Claude API 密钥，用于辟谣工坊/LLM增强分析
 
     # 数据库
-    database_url: str = "postgresql+asyncpg://truthtrace:truthtrace_dev@localhost:5432/truthtrace"
-    database_url_sync: str = "postgresql://truthtrace:truthtrace_dev@localhost:5432/truthtrace"
+    database_url: str = ""  # 必须通过 DATABASE_URL 环境变量设置
+    database_url_sync: str = ""  # 必须通过 DATABASE_URL_SYNC 环境变量设置
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"

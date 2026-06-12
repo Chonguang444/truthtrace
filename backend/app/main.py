@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.models.base import engine, Base
 from app.api import search, events, trace, rumors, stats, auth, ws, export, monitor, admin, feedback, reporting, video, system
 from app.api import literacy, situational, community, debunk_studio, vertical_medical, developer, quick_check, analytics, detectzoo
+from app.api import new_engines  # P0-P2 新引擎 API
 from app.middleware.rate_limit import setup_rate_limit, get_limiter
 from app.security import SecurityHeadersMiddleware
 
@@ -200,6 +201,7 @@ app.include_router(developer.router, prefix="/api", tags=["API平台"])
 app.include_router(quick_check.router, prefix="/api", tags=["快速检测"])
 app.include_router(analytics.router, prefix="/api", tags=["效果追踪"])
 app.include_router(detectzoo.router, prefix="/api", tags=["跨库共享"])
+app.include_router(new_engines.router, prefix="/api", tags=["新引擎 P0-P2"])
 
 
 # --- 核心端点 ---

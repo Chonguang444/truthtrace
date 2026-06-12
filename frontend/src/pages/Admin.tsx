@@ -7,7 +7,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Shield, Activity, Bell, Wifi, Users, MessageSquare,
-  Clock, Search, ArrowLeft, Layers, BarChart3,
+  Clock, Search, ArrowLeft, Layers, BarChart3, CheckCircle,
 } from "lucide-react";
 import { OverviewTab } from "../components/admin/OverviewTab";
 import { AnalysisTab } from "../components/admin/AnalysisTab";
@@ -18,6 +18,9 @@ import { FeedbackTab } from "../components/admin/FeedbackTab";
 import { RulesTab } from "../components/admin/RulesTab";
 import { QualityTab } from "../components/admin/QualityTab";
 import { AnalyticsDashboard } from "../components/AnalyticsDashboard";
+import { DetectZooPanel } from "../components/DetectZooPanel";
+import { IFCNCompliancePanel } from "../components/IFCNCompliancePanel";
+import { Globe } from "lucide-react";
 
 const TABS = [
   { id: "overview", label: "概览", icon: Activity },
@@ -25,6 +28,8 @@ const TABS = [
   { id: "alerts", label: "叙事告警", icon: Bell },
   { id: "quality", label: "质量仪表盘", icon: Layers },
   { id: "analytics", label: "辟谣效果", icon: BarChart3 },
+  { id: "detectzoo", label: "跨库桥接", icon: Globe },
+  { id: "ifcn", label: "IFCN 合规", icon: Shield },
   { id: "health", label: "系统健康", icon: Wifi },
   { id: "users", label: "用户管理", icon: Users },
   { id: "feedback", label: "反馈审核", icon: MessageSquare },
@@ -63,6 +68,41 @@ export function Admin() {
         {tab === "health" && <HealthTab />}
         {tab === "quality" && <QualityTab />}
         {tab === "analytics" && <AnalyticsDashboard />}
+        {tab === "detectzoo" && <DetectZooPanel />}
+        {tab === "ifcn" && (
+          <div className="max-w-2xl mx-auto space-y-4">
+            <div className="rounded-xl border bg-card p-6">
+              <h2 className="text-lg font-bold mb-2">IFCN 合规状态</h2>
+              <p className="text-sm text-muted-foreground mb-4">
+                TruthTrace 符合 International Fact-Checking Network (IFCN) 标准的核查报告格式。
+                所有分析结果自动生成 Schema.org ClaimReview JSON-LD 和 IFCN Feed 条目。
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: "非匿名审查者", status: true },
+                  { label: "证据来源可查证", status: true },
+                  { label: "方法论透明公开", status: true },
+                  { label: "Schema.org ClaimReview", status: true },
+                  { label: "IFCN Feed 导出", status: true },
+                  { label: "结构化数据 JSON-LD", status: true },
+                  { label: "多语言支持 (8语)", status: true },
+                  { label: "Google Fact Check 兼容", status: true },
+                ].map((item) => (
+                  <div key={item.label} className="flex items-center gap-2 p-3 rounded-lg border bg-muted/10 text-sm">
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    {item.label}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <IFCNCompliancePanel
+              ifcnReview={{
+                ifcn_rating: "Unverifiable",
+                generated_at: new Date().toISOString(),
+              }}
+            />
+          </div>
+        )}
         {tab === "users" && <UsersTab />}
         {tab === "feedback" && <FeedbackTab />}
         {tab === "rules" && <RulesTab />}

@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,8 +19,11 @@ from app.models.user import User
 
 settings = get_settings()
 
-# --- 密码哈希 (pbkdf2_sha256 — 无原生库依赖，兼容 Python 3.12+) ---
-pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+# --- 密码哈希 (bcrypt — 抗GPU加速攻击) ---
+# 直接使用 bcrypt 而非 passlib (passlib 已停止维护，与新版 bcrypt 不兼容)
+import bcrypt as _bcrypt
+
+_BCRYPT_ROUNDS = 12  # 成本因子 (12 = ~0.3s/hash)
 
 # --- JWT 配置 ---
 import os
@@ -81,11 +83,23 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=Fals
 # --- 密码工具 ---
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    """验证密码 (bcrypt — 自动截断 >72 字节)"""
+    password_bytes = plain_password.encode("utf-8")
+    if len(password_bytes) > 72:
+        password_bytes = password_bytes[:72]
+    try:
+        return _bcrypt.checkpw(password_bytes, hashed_password.encode("utf-8"))
+    except Exception:
+        return False
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    """哈希密码 (bcrypt, cost=12 — 自动截断 >72 字节)"""
+    password_bytes = password.encode("utf-8")
+    if len(password_bytes) > 72:
+        password_bytes = password_bytes[:72]
+    salt = _bcrypt.gensalt(rounds=_BCRYPT_ROUNDS)
+    return _bcrypt.hashpw(password_bytes, salt).decode("utf-8")
 
 
 # --- JWT 工具 ---

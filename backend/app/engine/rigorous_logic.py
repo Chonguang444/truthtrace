@@ -853,7 +853,8 @@ async def run_rigorous_analysis(
     # 特殊处理: 当所有引擎均未发现问题, 且来源不是权威来源时:
     # 这不是"misleading", 而是"unverifiable" — 无法证实也无法证伪
     total_signals = sum([
-        len(all_distortions), len(all_fallacies), len(statMatches if 'statMatches' in dir() else []),
+        len(all_distortions), len(all_fallacies),
+        len(engine_result.get("statistical_analysis", {}).get("matches", [])),
         len(chain_links), len(analysis.source_claim_issues), h_refuted,
         h_supported,
     ])

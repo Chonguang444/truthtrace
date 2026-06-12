@@ -161,10 +161,10 @@ class PropagationEdge(Base):
         SA_Uuid, primary_key=True, default=uuid.uuid4
     )
     from_source_id: Mapped[uuid.UUID] = mapped_column(
-        SA_Uuid, ForeignKey("sources.id", ondelete="CASCADE")
+        SA_Uuid, ForeignKey("sources.id", ondelete="CASCADE"), index=True
     )
     to_source_id: Mapped[uuid.UUID] = mapped_column(
-        SA_Uuid, ForeignKey("sources.id", ondelete="CASCADE")
+        SA_Uuid, ForeignKey("sources.id", ondelete="CASCADE"), index=True
     )
 
     edge_type: Mapped[EdgeType] = mapped_column(SAEnum(EdgeType))

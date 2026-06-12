@@ -398,28 +398,30 @@ def generate_csrf_token() -> str:
 
 
 def verify_csrf_token(token: str) -> bool:
-    """验证CSRF令牌"""
+    """验证CSRF令牌 (原子操作，防TOCTOU竞态)"""
     if _csrf_use_redis():
         try:
             from app.config import get_settings
             import redis as _redis
             r = _redis.from_url(get_settings().redis_url, socket_connect_timeout=1)
-            exists = r.get(f"csrf:{token}")
+            # GETDEL — 原子操作: 获取并删除 (Redis 6.2+)
+            # 回退: Lua脚本保证原子性
+            try:
+                exists = r.getdel(f"csrf:{token}")
+            except AttributeError:
+                # Redis < 6.2 不支持 GETDEL, 使用 Lua 脚本回退
+                lua = "local v = redis.call('GET', KEYS[1]); if v then redis.call('DEL', KEYS[1]) end; return v"
+                exists = r.eval(lua, 1, f"csrf:{token}")
             r.close()
-            if exists:
-                r = _redis.from_url(get_settings().redis_url, socket_connect_timeout=1)
-                r.delete(f"csrf:{token}")  # 一次性使用
-                r.close()
-                return True
-            return False
+            return bool(exists)
         except Exception:
             pass  # 回退到内存存储
-    ts = _csrf_tokens.get(token, 0)
-    if time.time() - ts > 3600:
-        _csrf_tokens.pop(token, None)
+    # 内存路径: dict.pop 在单进程 asyncio 中是原子的
+    ts = _csrf_tokens.pop(token, 0)
+    if not ts:
         return False
-    # 一次性使用 — 验证后立即删除令牌
-    del _csrf_tokens[token]
+    if time.time() - ts > 3600:
+        return False
     return True
 
 

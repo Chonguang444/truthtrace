@@ -22,7 +22,7 @@ from __future__ import annotations
 import uuid
 import hashlib
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
@@ -293,7 +293,7 @@ class RumorAlertEngine:
             correction_message=correction,
             share_text=share_text,
             generated_at=datetime.now(timezone.utc).isoformat(),
-            expires_at=(datetime.now(timezone.utc) + __import__("datetime").timedelta(days=30)).isoformat(),
+            expires_at=(datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
         )
 
         # === 推荐行动 ===

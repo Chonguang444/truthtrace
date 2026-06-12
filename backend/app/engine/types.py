@@ -238,6 +238,14 @@ class AnalysisResult:
     attention_metric: Optional[dict] = None       # 注意力效率评估
     ifcn_review: Optional[dict] = None            # IFCN标准导出
     debunk_script: Optional[dict] = None          # 辟谣视频脚本
+    expert_kb: Optional[dict] = None              # 专家知识库查询结果
+    english_misinfo_score: Optional[dict] = None   # 英文虚假信息补充评分
+    prebunking_result: Optional[dict] = None        # 预揭露接种提示 (Inoculation Theory)
+    credibility_index: Optional[dict] = None        # 溯源可信度指数 (Credibility Propagation)
+    kg_reasoning_result: Optional[dict] = None       # 知识图谱增强推理 (GraphCheck-style)
+    personalized_debunking_result: Optional[dict] = None  # 个性化辟谣 (MURSE-style)
+    community_verification: Optional[dict] = None    # 社区众包验证 (Community Notes-style)
+    deepfake_detection: Optional[dict] = None        # 多模态深度伪造检测
 
     # 完整推理链
     reasoning_chain: list[ReasoningStep] = field(default_factory=list)
@@ -293,6 +301,14 @@ class AnalysisResult:
             "attention_metric": self.attention_metric,
             "ifcn_review": self.ifcn_review,
             "debunk_script": self.debunk_script,
+            "expert_kb": self.expert_kb,
+            "english_misinfo_score": self.english_misinfo_score,
+            "prebunking_result": self.prebunking_result,
+            "credibility_index": self.credibility_index,
+            "kg_reasoning_result": self.kg_reasoning_result,
+            "personalized_debunking_result": self.personalized_debunking_result,
+            "community_verification": self.community_verification,
+            "deepfake_detection": self.deepfake_detection,
             "is_debunking": self.is_debunking,
             "debunking_adjustment": self.debunking_adjustment,
             "reasoning_chain": [s.to_dict() for s in self.reasoning_chain],

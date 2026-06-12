@@ -61,7 +61,7 @@ function ChallengeTab() {
     try {
       const res = await fetch((import.meta.env.VITE_API_BASE_URL || "") + "/api/literacy/challenges/submit", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...(localStorage.getItem("truthtrace-token") ? { Authorization: `Bearer ${localStorage.getItem("truthtrace-token")}` } : {}) },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ challenge_id: questionsData?.challenge_id || "", answers: answerList }),
         credentials: "include",
       });

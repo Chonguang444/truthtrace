@@ -640,7 +640,7 @@ async def run_reasoning_pipeline(
              "misleading": Verdict.MISLEADING, "likely_false": Verdict.LIKELY_FALSE,
              "false": Verdict.FALSE, "unverifiable": Verdict.UNVERIFIABLE}
     result.verdict = v_map.get(rv, Verdict.UNVERIFIABLE)
-    result.confidence = Confidence(rigorous.confidence) if hasattr(Confidence, rigorous.confidence) else Confidence.MODERATE
+    result.confidence = Confidence(rigorous.confidence) if rigorous.confidence in Confidence._value2member_map_ else Confidence.MODERATE
 
     # Attach rigorous analysis extras
     result.logical_summary = rigorous.logical_summary
@@ -1072,6 +1072,31 @@ async def run_reasoning_pipeline(
         logger.warning(f"回音壁检测跳过: {e}")
 
     # -----------------------------------------------------------------------
+    # Step 23.5: 英文虚假信息补充评分 (english_patterns)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.english_patterns import score_english_misinfo
+        ascii_chars = sum(1 for c in text if c.isascii() and c.isalpha())
+        total_chars = max(1, sum(1 for c in text if c.isalpha()))
+        if ascii_chars / total_chars > 0.3:  # 至少30%英文字符才运行
+            en_score = score_english_misinfo(text)
+            if en_score.get("match_count", 0) > 0:
+                result.english_misinfo_score = en_score
+                add_step(
+                    "英文虚假信息补充检测",
+                    f"检测到 {en_score['match_count']} 个英文虚假信息指标, 风险评分 {en_score['risk_score']:.0f}/100",
+                    Confidence.HIGH if en_score["risk_score"] > 30 else Confidence.MODERATE,
+                    evidence=[Evidence(
+                        description=f"[{m.get('type', m.get('signal', 'en'))}] 匹配 {m.get('count', 1)} 次",
+                        source_url="",
+                        quality=EvidenceQuality.MEDIUM,
+                    ) for m in en_score.get("matches", [])[:5]],
+                    uncertainty="英文虚假信息检测基于模式匹配。不同语言/文化的网络表达差异可能导致误判。",
+                )
+    except Exception as e:
+        logger.warning(f"英文虚假信息评分跳过: {e}")
+
+    # -----------------------------------------------------------------------
     # Step 24: 多语言溯源 (P0 — 检测是否涉及跨国信息)
     # -----------------------------------------------------------------------
     try:
@@ -1189,6 +1214,184 @@ async def run_reasoning_pipeline(
         )
     except Exception as e:
         logger.warning(f"IFCN兼容跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 28: 多领域专家知识库查询 (expert_kb)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.expert_kb import query_expert_kb
+        kb_result = query_expert_kb(
+            text=text, title=title,
+            domain_narrowing=True, max_results=5,
+        )
+        if kb_result and kb_result.get("matches"):
+            result.expert_kb = kb_result
+            add_step(
+                "多领域专家知识库交叉验证",
+                f"在{len(kb_result.get('domains_matched', []))}个领域中匹配到{len(kb_result['matches'])}条相关知识",
+                Confidence.MODERATE,
+                evidence=[Evidence(
+                    description=f"[{m.get('domain', '')}] {m.get('concept', '')}: {m.get('knowledge', '')[:120]}",
+                    source_url=m.get('source_url', url),
+                    quality=EvidenceQuality.HIGH,
+                ) for m in kb_result["matches"][:3]],
+                uncertainty="专家知识库提供领域常识参考，不替代实时核查。",
+            )
+    except Exception as e:
+        logger.warning(f"专家知识库跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 29: 预揭露接种引擎 (prebunking — Inoculation Theory)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.prebunking import run_prebunking_check
+        prebunk = run_prebunking_check(text=text, title=title)
+        result.prebunking_result = prebunk.to_dict()
+        if prebunk.detection_count > 0:
+            add_step(
+                f"预揭露批判思维提示 — 检测到 {prebunk.detection_count} 种操纵手法",
+                prebunk.summary,
+                Confidence.HIGH if prebunk.risk_level == "high" else (
+                    Confidence.MODERATE if prebunk.risk_level == "medium" else Confidence.LOW
+                ),
+                evidence=[Evidence(
+                    description=f"[{t['name']}] 置信度{t['confidence']:.0%} — {t['short_desc'][:80]}",
+                    source_url="",
+                    quality=EvidenceQuality.MEDIUM,
+                ) for t in prebunk.techniques_detected[:3]],
+                uncertainty="预揭露基于统计模式匹配。命名操纵手法本身增强批判思维——不触发心理防御。效果已被33项实验(N=37,075)元分析验证。",
+            )
+    except Exception as e:
+        logger.warning(f"预揭露引擎跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 30: 溯源可信度指数 (credibility_index — Credibility Propagation)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.credibility_index import compute_credibility_index
+        # 从 propagation_risk 或 graph 结果中提取节点和边
+        nodes_data = result.propagation_risk or {}
+        graph_nodes = []
+        for src in (nodes_data.get("sources") or []):
+            graph_nodes.append({
+                "id": src.get("url", ""),
+                "url": src.get("url", ""),
+                "platform": src.get("platform", ""),
+                "author": src.get("author", ""),
+                "is_original": src.get("is_original", False),
+                "role": "originator" if src.get("is_original") else "resharer",
+            })
+        cred_idx = compute_credibility_index(
+            nodes=graph_nodes or [{"id": url, "url": url, "platform": "unknown"}],
+            root_url=url,
+        )
+        result.credibility_index = cred_idx.to_dict()
+        if cred_idx.total_nodes > 0:
+            add_step(
+                f"溯源可信度指数 — {cred_idx.total_nodes}个节点传播链分析",
+                cred_idx.summary,
+                Confidence.HIGH if cred_idx.chain_integrity_score >= 0.6 else Confidence.MODERATE,
+                evidence=[Evidence(
+                    description=f"链路完整性{cred_idx.chain_integrity_score:.0%} | 平均衰减{cred_idx.average_decay_rate:.1%} | 原始源{cred_idx.original_sources_count}/{cred_idx.total_nodes}",
+                    source_url="",
+                    quality=EvidenceQuality.HIGH if cred_idx.original_sources_count > 0 else EvidenceQuality.MEDIUM,
+                )],
+                uncertainty="可信度传导基于来源权威度、内容完整度、引用质量的三维度加权。传播衰减模型考虑了边类型、时间延迟和传播角色。",
+            )
+    except Exception as e:
+        logger.warning(f"可信度指数跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 31: 知识图谱增强推理 (kg_reasoning — GraphCheck-style KG verification)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.kg_reasoning import run_kg_reasoning
+        kg_result = run_kg_reasoning(text=text, title=title)
+        result.kg_reasoning_result = kg_result.to_dict()
+        if kg_result.edges:
+            add_step(
+                f"知识图谱增强推理 — {len(kg_result.nodes)}个实体/{len(kg_result.edges)}条关系",
+                kg_result.summary,
+                Confidence.HIGH if kg_result.kg_coverage_score >= 0.5 else Confidence.MODERATE,
+                evidence=[Evidence(
+                    description=f"验证{len(kg_result.verified_claims)}条/反驳{len(kg_result.refuted_claims)}条 | 多跳{kg_result.multi_hop_paths}路径 | 覆盖率{kg_result.kg_coverage_score:.0%}",
+                    source_url="",
+                    quality=EvidenceQuality.HIGH if kg_result.verified_claims else EvidenceQuality.MEDIUM,
+                )],
+                uncertainty="知识图谱基于已知领域知识。新兴话题或跨领域主张可能未覆盖。建议结合实时搜索交叉验证。",
+            )
+    except Exception as e:
+        logger.warning(f"知识图谱推理跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 32: 个性化辟谣生成 (personalized_debunking — MURSE-style)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.personalized_debunking import generate_personalized_debunking
+        # 从correction或rigorous_analysis获取验证事实
+        verified = []
+        if result.correction:
+            verified.append(result.correction[:300])
+        if hasattr(result, 'rigorous_analysis') and result.rigorous_analysis:
+            verified.append(str(result.rigorous_analysis)[:300])
+        persona_result = generate_personalized_debunking(
+            rumor=title or text[:100],
+            verified_facts=verified or ["该主张缺乏可靠科学证据支持"],
+            query=title,
+        )
+        result.personalized_debunking_result = persona_result.to_dict()
+        add_step(
+            f"个性化辟谣生成 — {persona_result.tone_used}语气/预期效果提升{persona_result.confidence_boost:.0f}%",
+            persona_result.headline,
+            Confidence.MODERATE,
+            evidence=[Evidence(
+                description=f"画像: {persona_result.persona.cognitive_style.value}/{persona_result.persona.emotional_stance.value} | 策略: {persona_result.tone_used}",
+                source_url="",
+                quality=EvidenceQuality.MEDIUM,
+            )],
+            uncertainty="个性化辟谣基于用户画像推断。不同用户的认知风格和情感倾向可能需要不同的辟谣策略。实际效果需A/B测试验证。",
+        )
+    except Exception as e:
+        logger.warning(f"个性化辟谣跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 33: 社区众包验证 (community_verify — Community Notes-style)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.community_verify import run_community_verification
+        community_result = run_community_verification(event_id=getattr(result, 'event_id', ''))
+        result.community_verification = community_result.to_dict()
+        if community_result.total_contributors > 0:
+            add_step(
+                f"社区众包验证 — {community_result.total_contributors}位贡献者/{len(community_result.published_notes)}条注记",
+                community_result.summary,
+                Confidence.HIGH if community_result.consensus_verdict in ("supported", "refuted") else Confidence.MODERATE,
+                uncertainty="社区验证基于自愿贡献者的众包意见，不代表绝对真相。桥接评分算法优先跨立场共识。",
+            )
+    except Exception as e:
+        logger.warning(f"社区验证跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 34: 多模态深度伪造检测 (deepfake_detector)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.deepfake_detector import run_deepfake_check
+        deepfake_result = run_deepfake_check(text=text)
+        result.deepfake_detection = deepfake_result.to_dict()
+        if deepfake_result.findings:
+            add_step(
+                f"多模态深度伪造检测 — {len(deepfake_result.findings)}个异常信号/风险{deepfake_result.risk_score:.0f}/100",
+                deepfake_result.summary,
+                Confidence.HIGH if deepfake_result.tampering_probability > 0.5 else Confidence.MODERATE,
+                evidence=[Evidence(
+                    description=f"[{f.category}] {f.finding_type}: {f.description[:100]}",
+                    source_url="",
+                    quality=EvidenceQuality.HIGH if f.severity in ("high", "critical") else EvidenceQuality.MEDIUM,
+                ) for f in deepfake_result.findings[:3]],
+                uncertainty="深度伪造检测基于静态度量分析。对于复杂的视频/音频伪造，需要专业取证工具进行深度分析。",
+            )
+    except Exception as e:
+        logger.warning(f"深度伪造检测跳过: {e}")
 
     try:
         from app.evolution.calibrator import get_calibrator

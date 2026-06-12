@@ -31,14 +31,16 @@ router = APIRouter()
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str):
     """设置 httpOnly 认证 Cookie (防 XSS 窃取)"""
-    secure = False  # 开发环境 False; 生产环境通过 Nginx 设置
+    from app.config import get_settings
+    settings = get_settings()
+    secure = not settings.debug  # 生产环境 True, 开发环境 False
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
         secure=secure,
         samesite="lax",
-        max_age=60 * 60 * 24,  # 24 hours
+        max_age=settings.jwt_access_expire_minutes * 60,
         path="/api",
     )
     response.set_cookie(
@@ -47,7 +49,7 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         httponly=True,
         secure=secure,
         samesite="lax",
-        max_age=60 * 60 * 24 * 30,  # 30 days
+        max_age=settings.jwt_refresh_expire_days * 24 * 3600,
         path="/api/auth",
     )
 
