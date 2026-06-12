@@ -1393,6 +1393,116 @@ async def run_reasoning_pipeline(
     except Exception as e:
         logger.warning(f"深度伪造检测跳过: {e}")
 
+    # -----------------------------------------------------------------------
+    # Step 35: 谣言生命周期追踪 (rumor_lifecycle — ISDR-M/SPIDR models)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.rumor_lifecycle import track_rumor_lifecycle
+        lifecycle_result = track_rumor_lifecycle(rumor_text=title or text[:100])
+        result.rumor_lifecycle = lifecycle_result.to_dict()
+        add_step(
+            f"谣言生命周期追踪 — 6阶段 · 存活{lifecycle_result.total_lifetime_hours:.0f}h",
+            lifecycle_result.survival_rank,
+            Confidence.MODERATE,
+            evidence=[Evidence(
+                description=f"诞生→潜伏→放大→高峰({lifecycle_result.peak_reach:,}人)→辟谣({lifecycle_result.time_to_debunk_hours:.0f}h)→衰退 | 辟谣效果{lifecycle_result.debuff_effectiveness:.0%}",
+                source_url="",
+                quality=EvidenceQuality.MEDIUM,
+            )],
+            uncertainty="生命周期追踪基于传播模型估算。实际传播数据需从各平台API实时采集。年度报告需累计数据。",
+        )
+    except Exception as e:
+        logger.warning(f"谣言生命周期跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 36: 信息污染指数 (pollution_index — AQI-style public product)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.pollution_index import compute_pollution_index
+        pollution_result = compute_pollution_index()
+        result.pollution_index = pollution_result.to_dict()
+        add_step(
+            f"信息污染指数 — 综合{pollution_result.overall_ipi:.0f} ({pollution_result.risk_level})",
+            f"覆盖{pollution_result.total_analyzed:,}条内容 · {len(pollution_result.platforms)}个平台 · {len(pollution_result.topics)}个话题",
+            Confidence.MODERATE,
+            evidence=[Evidence(
+                description=f"最污染: {max(pollution_result.platforms, key=lambda p: p.ipi_score).platform if pollution_result.platforms else 'N/A'} | 最清洁: {min(pollution_result.platforms, key=lambda p: p.ipi_score).platform if pollution_result.platforms else 'N/A'}",
+                source_url="",
+                quality=EvidenceQuality.LOW,
+            )],
+            uncertainty="信息污染指数基于统计采样和基线估计。实时精确计算需要持续的数据采集和模型校准。",
+        )
+    except Exception as e:
+        logger.warning(f"信息污染指数跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 37: 叙事战场分析 (narrative_battlefield — 竞争叙事可视化)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.narrative_battlefield import analyze_narrative_battlefield
+        battlefield_result = analyze_narrative_battlefield(text=text, title=title)
+        result.narrative_battlefield = battlefield_result.to_dict()
+        if battlefield_result.narratives:
+            add_step(
+                f"叙事战场分析 — {len(battlefield_result.narratives)}个竞争叙事 · 道德模糊度{battlefield_result.moral_ambiguity_score:.0%}",
+                battlefield_result.summary,
+                Confidence.MODERATE,
+                evidence=[Evidence(
+                    description=f"主导叙事: {battlefield_result.dominant_narrative.narrative_label if battlefield_result.dominant_narrative else 'N/A'} | 冲突: {len(battlefield_result.narrative_conflicts)}对",
+                    source_url="",
+                    quality=EvidenceQuality.MEDIUM,
+                )],
+                uncertainty="叙事分析不判定哪个叙事'正确'。本分析仅展示叙事景观，帮助读者理解信息的多层复杂性。",
+            )
+    except Exception as e:
+        logger.warning(f"叙事战场跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 38: AI核查教学评估 (teach_assistant — 5维度验证矩阵)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.teach_assistant import generate_teaching_lesson
+        teaching_result = generate_teaching_lesson(claim=title or text[:100])
+        result.teaching_result = teaching_result.to_dict()
+        add_step(
+            f"AI核查教学 — {len(teaching_result.steps)}步验证 · 技能等级: {teaching_result.certificate_level}",
+            teaching_result.feedback,
+            Confidence.LOW,
+            evidence=[Evidence(
+                description=f"技能评估: {', '.join(f'{k}:{v:.0%}' for k,v in teaching_result.skills_assessed.items())}" if teaching_result.skills_assessed else "",
+                source_url="",
+                quality=EvidenceQuality.LOW,
+            )],
+            uncertainty="教学评估基于用户自主验证的完整性。AI仅引导思维过程，不替代人的独立判断。",
+        )
+    except Exception as e:
+        logger.warning(f"教学评估跳过: {e}")
+
+    # -----------------------------------------------------------------------
+    # Step 39: 区块链溯源存证 (blockchain_verify — SHA-256 chain)
+    # -----------------------------------------------------------------------
+    try:
+        from app.engine.blockchain_verify import create_verification_chain
+        import hashlib
+        blockchain_result = create_verification_chain(
+            event_id=hashlib.sha256((url + title).encode()).hexdigest()[:16],
+            analysis_data=result.to_dict(),
+        )
+        result.blockchain_verification = blockchain_result.to_dict()
+        add_step(
+            f"区块链溯源存证 — {blockchain_result.chain_length}区块 · 验证强度: {blockchain_result.verification_strength}",
+            blockchain_result.summary,
+            Confidence.HIGH if blockchain_result.chain_valid else Confidence.LOW,
+            evidence=[Evidence(
+                description=f"创世哈希: {blockchain_result.genesis_hash[:16]}... | 最新: {blockchain_result.latest_hash[:16]}... | 链完整性: {'✅' if blockchain_result.chain_valid else '❌'}",
+                source_url="",
+                quality=EvidenceQuality.HIGH,
+            )],
+            uncertainty="基于SHA-256哈希链的防篡改存证。非完整区块链，不包含分布式共识机制。适用于证据保全和可验证溯源。",
+        )
+    except Exception as e:
+        logger.warning(f"区块链存证跳过: {e}")
+
     try:
         from app.evolution.calibrator import get_calibrator
         get_calibrator().record_event(result.credibility_score, result.verdict.value, result.to_dict())

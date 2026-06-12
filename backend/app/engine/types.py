@@ -246,6 +246,11 @@ class AnalysisResult:
     personalized_debunking_result: Optional[dict] = None  # 个性化辟谣 (MURSE-style)
     community_verification: Optional[dict] = None    # 社区众包验证 (Community Notes-style)
     deepfake_detection: Optional[dict] = None        # 多模态深度伪造检测
+    rumor_lifecycle: Optional[dict] = None           # 谣言生命周期追踪
+    pollution_index: Optional[dict] = None           # 信息污染指数
+    teaching_result: Optional[dict] = None           # AI核查教学结果
+    narrative_battlefield: Optional[dict] = None     # 叙事战场分析
+    blockchain_verification: Optional[dict] = None   # 区块链溯源存证
 
     # 完整推理链
     reasoning_chain: list[ReasoningStep] = field(default_factory=list)
@@ -309,6 +314,11 @@ class AnalysisResult:
             "personalized_debunking_result": self.personalized_debunking_result,
             "community_verification": self.community_verification,
             "deepfake_detection": self.deepfake_detection,
+            "rumor_lifecycle": self.rumor_lifecycle,
+            "pollution_index": self.pollution_index,
+            "teaching_result": self.teaching_result,
+            "narrative_battlefield": self.narrative_battlefield,
+            "blockchain_verification": self.blockchain_verification,
             "is_debunking": self.is_debunking,
             "debunking_adjustment": self.debunking_adjustment,
             "reasoning_chain": [s.to_dict() for s in self.reasoning_chain],
