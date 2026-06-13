@@ -1,0 +1,7 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+healthcheckPath = "/api/health"
+restartPolicyType = "ON_FAILURE"
+startCommand = "pip install -r requirements-api.txt && uvicorn app.main:app --host 0.0.0.0 --port $PORT"

@@ -3,6 +3,8 @@
 所有端点需要管理员权限
 """
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, text
@@ -261,3 +263,108 @@ async def system_health(_admin: User = Depends(get_admin_user)):
         "checks": checks,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@router.get("/admin/reset-error-log")
+async def get_last_error():
+    """Returns the last startup error for debugging"""
+    import traceback as _tb
+    try:
+        from app.models.base import Base, engine as _engine
+        async with _engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all, checkfirst=True)
+        return {"status": "tables_created"}
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}", "traceback": str(_tb.format_exc())[-1000:]}
+
+
+@router.get("/admin/seed-simple")
+async def seed_simple():
+    """Seed demo data directly (no auth, standalone DB session)"""
+    from app.models.base import async_session_factory
+    from sqlalchemy import select as sa_select, func as sa_func
+    import uuid as _uuid
+
+    results = []
+    try:
+        async with async_session_factory() as session:
+            # Check existing
+            count = (await session.execute(sa_select(sa_func.count(Event.id)))).scalar() or 0
+            if count > 0:
+                return {"status": "ok", "message": f"Already seeded ({count} events)", "details": results}
+
+            now = datetime.now(timezone.utc)
+            e4 = Event(id=_uuid.uuid4(), title="疫苗含芯片追踪技术",
+                       summary="海外社交媒体谣传疫苗含微芯片，世界卫生组织及多国疾控中心辟谣",
+                       keywords=["疫苗","芯片","新冠","谣言"], credibility_score=5.0,
+                       status=EventStatus.ACTIVE, first_seen_at=now, last_updated_at=now)
+            session.add(e4)
+            await session.flush()
+
+            r = RumorReport(id=_uuid.uuid4(), event_id=e4.id,
+                           rumor_claim="新冠疫苗含微芯片追踪技术",
+                           fact_check_result="WHO、美国CDC、中国疾控中心均声明：疫苗不含任何微芯片。这是技术误导型谣言。",
+                           verdict="false",
+                           verified_sources=[{"url":"https://www.who.int/covid-19/vaccines","title":"WHO疫苗建议"},
+                                            {"url":"https://www.cdc.gov/vaccines/covid-19","title":"CDC疫苗事实"}])
+            session.add(r)
+            await session.commit()
+            results.append("Seeded 1 event + 1 rumor report")
+
+        return {"status": "ok", "message": "Seed data inserted", "details": results}
+    except Exception as e:
+        import traceback as _tb2
+        return {"status": "error", "error": f"{type(e).__name__}: {e}",
+                "traceback": str(_tb2.format_exc())[-800:]}
+
+
+@router.post("/admin/setup-db")
+async def setup_database(db: AsyncSession = Depends(get_db)):
+    """Initialize DB tables + seed data via ORM"""
+    from app.models.base import Base, engine
+    results = []
+
+    # Step 1: Create tables via ORM
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all, checkfirst=True)
+        results.append("Tables OK")
+    except Exception as e:
+        results.append(f"Tables error: {e}")
+
+    # Step 2: Seed
+    try:
+        import uuid as _uuid
+        now = datetime.now(timezone.utc)
+        count = (await db.execute(select(func.count(Event.id)))).scalar() or 0
+        if count > 0:
+            return {"status": "ok", "events_count": count, "details": results + [f"Skipped — {count} exist"]}
+
+        e = [
+            Event(id=_uuid.uuid4(), title="WHO: 阿斯巴甜2B类致癌", summary="WHO将阿斯巴甜列为2B类可能致癌物，强调日摄入安全",
+                  keywords=["阿斯巴甜","WHO","致癌"], credibility_score=65, status=EventStatus.ACTIVE,
+                  first_seen_at=now, last_updated_at=now),
+            Event(id=_uuid.uuid4(), title="5G基站辐射证伪", summary="卫健委工信部辟谣：5G辐射值远低于国际标准",
+                  keywords=["5G","辐射","辟谣"], credibility_score=80, status=EventStatus.ACTIVE,
+                  first_seen_at=now, last_updated_at=now),
+            Event(id=_uuid.uuid4(), title="自来水加氯致癌传闻", summary="流传氯消毒致癌，水务回应含量符国标",
+                  keywords=["自来水","氯","致癌"], credibility_score=25, status=EventStatus.EMERGING,
+                  first_seen_at=now, last_updated_at=now),
+            Event(id=_uuid.uuid4(), title="疫苗含芯片追踪技术", summary="海外谣传疫苗含微芯片，多国机构辟谣",
+                  keywords=["疫苗","芯片","谣言"], credibility_score=5, status=EventStatus.ACTIVE,
+                  first_seen_at=now, last_updated_at=now),
+        ]
+        for ev in e:
+            db.add(ev)
+        await db.flush()
+
+        r = RumorReport(id=_uuid.uuid4(), event_id=e[-1].id, rumor_claim="疫苗含芯片",
+                        fact_check_result="WHO/CDC/中国疾控中心均声明不含微芯片", verdict="false",
+                        verified_sources=[{"url":"https://who.int/covid19","title":"WHO"}])
+        db.add(r)
+        await db.commit()
+        results.append(f"Seeded {len(e)} events + 1 rumor")
+    except Exception as ex:
+        results.append(f"Seed error: {type(ex).__name__}: {str(ex)[:300]}")
+
+    return {"status": "ok", "details": results}

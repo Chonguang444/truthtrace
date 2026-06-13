@@ -60,6 +60,35 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
 
 
+def _normalize_database_url(url: str) -> str:
+    """Normalize DATABASE_URL for SQLAlchemy async engine compatibility.
+
+    Render and many platforms provide DATABASE_URL as:
+      postgres://user:pass@host:port/dbname
+      postgresql://user:pass@host:port/dbname
+
+    SQLAlchemy's create_async_engine() requires the async driver prefix:
+      postgresql+asyncpg://user:pass@host:port/dbname
+
+    This function transforms the URL automatically so the app works
+    out-of-the-box on Render, Railway, Fly.io, and local PostgreSQL.
+    """
+    if not url:
+        return url
+    # Already has an async driver — nothing to do
+    if "+asyncpg" in url or "+aiosqlite" in url:
+        return url
+    # postgres:// → postgresql+asyncpg:// (Render default)
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+asyncpg://", 1)
+    # postgresql:// → postgresql+asyncpg:// (standard PostgreSQL URL)
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return url
+
+
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    s = Settings()
+    s.database_url = _normalize_database_url(s.database_url)
+    return s

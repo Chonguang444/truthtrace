@@ -29,73 +29,122 @@ logger = logging.getLogger("truthtrace")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期：自动迁移数据库（Alembic）"""
-    from sqlalchemy import text as sa_text, inspect
+    """应用生命周期 — Render免费层快速启动：先响应health check，后台慢初始化"""
+    import asyncio as _asyncio
+    from sqlalchemy import text as sa_text
 
-    # --- 数据库迁移 ---
-    # 生产环境推荐: DATABASE_URL="..." alembic upgrade head && uvicorn ...
-    # 开发环境: 自动使用 Alembic 运行迁移
-    try:
-        from alembic.config import Config
-        from alembic import command as alembic_command
-        import os as _os
+    setup_complete = False
 
-        alembic_cfg = Config(_os.path.join(_os.path.dirname(__file__), "..", "alembic.ini"))
-        # Override DB URL for sync migration
-        sync_url = settings.database_url.replace("+asyncpg", "").replace("+aiosqlite", "")
-        alembic_cfg.set_main_option("sqlalchemy.url", sync_url)
+    async def _slow_startup():
+        """后台慢初始化 — 不影响 Render health check"""
+        nonlocal setup_complete
+        await _asyncio.sleep(1)  # 等uvicorn完全就绪
 
-        async with engine.begin() as conn:
-            def _run_migrations(sync_conn):
-                # Point alembic to the existing connection
-                alembic_cfg.attributes['connection'] = sync_conn
-                alembic_command.upgrade(alembic_cfg, "head")
-            await conn.run_sync(_run_migrations)
-        logger.info("Database migration complete")
-    except Exception as e:
-        # Fallback: use create_all for development convenience
-        logger.warning(f"Alembic migration skipped (falling back to create_all): {e}")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        # --- 数据库迁移 ---
+        try:
+            from alembic.config import Config
+            from alembic import command as alembic_command
+            import os as _os
+            alembic_cfg = Config(_os.path.join(_os.path.dirname(__file__), "..", "alembic.ini"))
+            sync_url = settings.database_url.replace("+asyncpg", "").replace("+aiosqlite", "")
+            alembic_cfg.set_main_option("sqlalchemy.url", sync_url)
+            async with engine.begin() as conn:
+                def _run(sync_conn):
+                    alembic_cfg.attributes['connection'] = sync_conn
+                    alembic_command.upgrade(alembic_cfg, "head")
+                await conn.run_sync(_run)
+            logger.info("Database migration complete")
+        except Exception as e:
+            logger.warning(f"Migration skipped: {e}")
+            try:
+                async with engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
+            except Exception:
+                pass
 
-    # --- 全文搜索索引 (PostgreSQL only, auto-skipped by SQLite) ---
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(sa_text(
-                "CREATE INDEX IF NOT EXISTS ix_events_search_tsv ON events "
-                "USING gin (to_tsvector('simple', coalesce(title, '')) "
-                "|| to_tsvector('simple', coalesce(summary, '')))"
-            ))
-            await conn.execute(sa_text(
-                "CREATE INDEX IF NOT EXISTS ix_events_keywords_gin ON events "
-                "USING gin (keywords)"
-            ))
-    except Exception:
-        logger.debug("GIN indexes skipped (not PostgreSQL or already exist)")
+        # --- 全文搜索索引 ---
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(sa_text(
+                    "CREATE INDEX IF NOT EXISTS ix_events_search_tsv ON events "
+                    "USING gin (to_tsvector('simple', coalesce(title,'') || ' ' || coalesce(summary,'')))"
+                ))
+        except Exception:
+            pass
 
-    logger.info(f"{settings.app_name} v{settings.app_version} started")
-    # 启动自动采集器(部署后立即开始爬取)
-    try:
-        from app.monitor.auto_collector import start_collector, stop_collector
-        await start_collector()
-    except Exception as e:
-        logger.warning(f"AutoCollector 启动跳过: {e}")
-    # 启动监控定时调度 (每15分钟爬取热搜+分析+告警)
+        # --- 自动种子数据 (空DB时) ---
+        try:
+            from app.models.base import async_session_factory
+            from app.models.event import Event, RumorReport, EventStatus
+            from sqlalchemy import select as sa_select, func as sa_func
+            import uuid as _uuid
+            _now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
+            async with async_session_factory() as _sess:
+                cnt = (await _sess.execute(sa_select(sa_func.count(Event.id)))).scalar() or 0
+                if cnt == 0:
+                    evs = [
+                        Event(id=_uuid.uuid4(), title="WHO: 阿斯巴甜列为2B类致癌物",
+                              summary="世界卫生组织将阿斯巴甜列为2B类可能致癌物质，强调日常摄入量安全",
+                              keywords=["阿斯巴甜","WHO","致癌"], credibility_score=65, status=EventStatus.ACTIVE,
+                              first_seen_at=_now, last_updated_at=_now),
+                        Event(id=_uuid.uuid4(), title="5G基站辐射危害已被证伪",
+                              summary="国家卫健委、工信部联合辟谣：5G基站辐射值远低于国际标准",
+                              keywords=["5G","辐射","辟谣"], credibility_score=80, status=EventStatus.ACTIVE,
+                              first_seen_at=_now, last_updated_at=_now),
+                        Event(id=_uuid.uuid4(), title="自来水加氯过量致癌传闻",
+                              summary="社交媒体流传自来水加氯消毒产生致癌物，水务部门回应氯含量符合国标",
+                              keywords=["自来水","氯","致癌"], credibility_score=25, status=EventStatus.EMERGING,
+                              first_seen_at=_now, last_updated_at=_now),
+                        Event(id=_uuid.uuid4(), title="新冠疫苗含芯片追踪技术",
+                              summary="海外社交媒体谣传疫苗含微芯片，世界卫生组织及多国疾控中心辟谣",
+                              keywords=["疫苗","芯片","新冠","谣言"], credibility_score=5, status=EventStatus.ACTIVE,
+                              first_seen_at=_now, last_updated_at=_now),
+                    ]
+                    [_sess.add(ev) for ev in evs]
+                    await _sess.flush()
+                    rr = RumorReport(id=_uuid.uuid4(), event_id=evs[-1].id,
+                                     rumor_claim="新冠疫苗含微芯片追踪技术",
+                                     fact_check_result="WHO、美国CDC、中国疾控中心均声明：疫苗不含任何微芯片。这是典型的技术误导型谣言。",
+                                     verdict="false",
+                                     verified_sources=[{"url":"https://www.who.int/covid-19/vaccines","title":"WHO疫苗建议"}])
+                    _sess.add(rr)
+                    await _sess.commit()
+                    logger.info(f"Auto-seeded {len(evs)} demo events + 1 rumor report")
+        except Exception as _e:
+            logger.debug(f"Auto-seed skipped: {_e}")
+
+        setup_complete = True
+        logger.info(f"{settings.app_name} v{settings.app_version} fully initialized")
+
+        # --- 自动采集器 ---
+        try:
+            from app.monitor.auto_collector import start_collector
+            await start_collector()
+        except Exception as e:
+            logger.debug(f"AutoCollector: {e}")
+
+        # --- 监控调度 (仅非debug模式) ---
+        if not settings.debug:
+            try:
+                from app.monitor.hotspot_monitor import monitor_scheduler
+                await monitor_scheduler.start(interval_minutes=15)
+            except Exception as e:
+                logger.debug(f"Monitor: {e}")
+
+    # 立即返回 — 不阻塞 Render health check
+    _asyncio.create_task(_slow_startup())
+    logger.info(f"{settings.app_name} v{settings.app_version} starting (background init...)")
+
+    yield
+
+    # --- 清理 ---
     try:
         from app.monitor.hotspot_monitor import monitor_scheduler
-        if settings.debug:
-            # 开发环境: 不自动启动(避免频繁调用)
-            logger.info("开发模式: 监控调度器不自动启动 (可通过 POST /api/monitor/crawl 手动触发)")
-        else:
-            await monitor_scheduler.start(interval_minutes=15)
-    except Exception as e:
-        logger.warning(f"监控调度器启动跳过: {e}")
-    yield
-    try:
         await monitor_scheduler.stop()
     except Exception:
         pass
     try:
+        from app.monitor.auto_collector import stop_collector
         await stop_collector()
     except Exception:
         pass
@@ -121,9 +170,12 @@ else:
         "http://localhost:5173",
         "http://localhost:3000",
     ]
+# Always allow Vercel deploy domains (production + all preview deploys)
+cors_origin_regex = r"https://truthtrace(-[a-zA-Z0-9-]*)?\.vercel\.app"
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
+    allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

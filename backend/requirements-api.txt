@@ -1,16 +1,21 @@
-# TruthTrace API — 最小生产依赖 v6 (全部纯 Python 或预编译 wheel)
-# 无 Rust/C 编译需求，适配 Render 免费层
+# TruthTrace API — 生产依赖 v7 (移除最重依赖，保留其余)
+# Playwright/spacy/sentence-transformers/weasyprint 均为懒加载
 
 # Web 框架
 fastapi==0.115.0
 uvicorn==0.30.6
-pydantic==2.9.2
+pydantic[email]==2.9.2
 pydantic-settings==2.5.2
 
-# 数据库 (asyncpg/sqlalchemy 有预编译 wheel)
+# 数据库
 sqlalchemy[asyncio]==2.0.35
 asyncpg==0.29.0
+aiosqlite==0.20.0
 alembic==1.13.2
+
+# 缓存 & 队列 (懒加载但需要包存在)
+redis==5.1.1
+celery[redis]==5.4.0
 
 # 爬虫
 httpx==0.27.2
@@ -19,10 +24,16 @@ beautifulsoup4==4.12.3
 # NLP (纯 Python)
 jieba==0.42.1
 
+# 图像处理 (纯 Python, 懒加载)
+Pillow==10.4.0
+
 # 工具 (全部纯 Python)
 python-multipart==0.0.9
+tenacity==9.0.0
 loguru==0.7.2
-slowapi==0.1.9
 
-# 认证 — PyJWT 纯 Python (无需 Rust, 比 python-jose+cryptography 轻 100 倍)
+# 认证 — 纯 Python PyJWT (无 Rust)
 PyJWT==2.10.1
+
+# 速率限制
+slowapi==0.1.9

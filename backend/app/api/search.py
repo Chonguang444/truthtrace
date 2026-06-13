@@ -174,7 +174,12 @@ async def search_events(
     # 去重子查询包装 (避免多条件匹配同一事件)
     stmt = stmt.offset(offset).limit(limit)
 
-    result = await db.execute(stmt)
+    try:
+        result = await db.execute(stmt)
+    except Exception as e:
+        logger.warning(f"Search query failed (table may not exist): {e}")
+        return {"query": q, "total": 0, "offset": offset, "limit": limit, "sort": sort, "events": []}
+
     # 单列: 直接获取 Event 对象; 多列 (含 relevance): 取第一列
     if relevance_score is not None:
         rows = [(row[0], row[1]) for row in result.all()]
@@ -190,11 +195,14 @@ async def search_events(
             seen.add(event.id)
             unique_events.append(event)
 
-    total_stmt = select(func.count(Event.id)).where(where_clause)
-    if status:
-        total_stmt = total_stmt.where(Event.status == status)
-    total_result = await db.execute(total_stmt)
-    total = total_result.scalar() or 0
+    try:
+        total_stmt = select(func.count(Event.id)).where(where_clause)
+        if status:
+            total_stmt = total_stmt.where(Event.status == status)
+        total_result = await db.execute(total_stmt)
+        total = total_result.scalar() or 0
+    except Exception:
+        total = len(unique_events)
 
     # --- 批量获取每个事件的前5个来源URL ---
     event_ids = [e.id for e in unique_events]

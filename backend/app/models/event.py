@@ -62,7 +62,9 @@ class Event(Base):
         comment="可信度评分 0-100，50 为中性"
     )
 
-    first_seen_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc), index=True
+    )
     last_updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )

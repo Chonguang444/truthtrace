@@ -1,0 +1,4 @@
+# Nixpacks config — Railway auto-detects Python + this file
+[variables]
+INSTALL_CMD = "pip install -r requirements-api.txt"
+START_CMD = "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"

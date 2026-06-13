@@ -184,23 +184,32 @@ async def get_dashboard_stats(
     db: AsyncSession = Depends(get_db),
 ):
     """仪表盘总览统计（精简版，向后兼容）"""
-    total_events = (await db.execute(select(func.count(Event.id)))).scalar() or 0
-    total_sources = (await db.execute(select(func.count(Source.id)))).scalar() or 0
-    total_rumors = (await db.execute(select(func.count(RumorReport.id)))).scalar() or 0
-    avg_cred = (await db.execute(select(func.avg(Event.credibility_score)))).scalar() or 50.0
-    today = func.date(datetime.now(timezone.utc))
-    today_events = (
-        await db.execute(select(func.count(Event.id)).where(func.date(Event.created_at) == today))
-    ).scalar() or 0
+    try:
+        total_events = (await db.execute(select(func.count(Event.id)))).scalar() or 0
+        total_sources = (await db.execute(select(func.count(Source.id)))).scalar() or 0
+        total_rumors = (await db.execute(select(func.count(RumorReport.id)))).scalar() or 0
+        avg_cred = (await db.execute(select(func.avg(Event.credibility_score)))).scalar() or 50.0
+        today = func.date(datetime.now(timezone.utc))
+        today_events = (
+            await db.execute(select(func.count(Event.id)).where(func.date(Event.created_at) == today))
+        ).scalar() or 0
+    except Exception as e:
+        logger.warning(f"Stats query failed (tables may not exist): {e}")
+        return {"total_events": 0, "total_sources": 0, "total_rumor_reports": 0,
+                "avg_credibility": 50.0, "today_events": 0, "recent_7d_trend": [],
+                "note": "Database schema not initialized. Run /api/admin/setup-db to initialize."}
 
-    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
-    recent = await db.execute(
-        select(Event.created_at, Event.status).where(Event.created_at >= seven_days_ago)
-    )
-    daily: dict[str, int] = {}
-    for created_at, _ in recent.all():
-        day = created_at.strftime("%m-%d") if created_at else "unknown"
-        daily[day] = daily.get(day, 0) + 1
+    try:
+        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+        recent = await db.execute(
+            select(Event.created_at, Event.status).where(Event.created_at >= seven_days_ago)
+        )
+        daily: dict[str, int] = {}
+        for created_at, _ in recent.all():
+            day = created_at.strftime("%m-%d") if created_at else "unknown"
+            daily[day] = daily.get(day, 0) + 1
+    except Exception:
+        daily = {}  # Non-critical, just return empty trend
 
     return {
         "total_events": total_events,
